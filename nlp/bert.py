@@ -232,9 +232,7 @@ class BertWrapper:
 
 
 # get the data:
-folds = tools.read_folds(prefix="undersampled_stopped_text",
-                         read_path="../../data/folds_nlp",
-                         test_fold_id=0)
+folds = tools.read_folds(prefix="undersampled_stopped_text", read_path="../../data/folds_nlp", test_fold_id=0)
 train_folds = folds["available_for_train"]
 test_fold = folds["test"]
 
@@ -246,6 +244,8 @@ batch_size = 32
 x_name = "text"
 y_name = "label"
 device = tools.select_device()
+print("device:", device)
+
 parameters = {"n_epochs": n_epochs,
               "lr": lr,
               "max_seq_len": max_seq_len,
@@ -256,7 +256,7 @@ parameters = {"n_epochs": n_epochs,
 
 bert_wrapper = BertWrapper()
 # hyperparameter selection, use multiple parameter dictionaries:
-f1_values = bert_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters)["f1"]
+f1_values = bert_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters)["f1_scores"]
 
 # concatenate all train folds, train on them and predict on test:
 train_data = train_folds[0]

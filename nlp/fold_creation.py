@@ -7,7 +7,7 @@ np.random_state = 0
 
 class TextFoldCreator:
     """
-    A class to create folds from the given data.
+    A class to create folds from the given nlp data.
     """
 
     def __init__(self, train_path, val_path, destination_path):
@@ -91,7 +91,7 @@ class TextFoldCreator:
         Creates folds without undersampling or stopword-elimination.
 
         :param str prefix: a concatenation of the prefix and the fold number is used as the name of the .csv file
-        in which the respective folds are stores
+        in which the respective folds are stored
         """
         fold_ids = self.get_fold_ids(num_indices=len(self.data), num_folds=6)
         for i, fold in enumerate(fold_ids):

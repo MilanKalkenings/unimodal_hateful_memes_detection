@@ -1,4 +1,4 @@
-import tools
+import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -9,7 +9,11 @@ from sklearn.metrics import accuracy_score
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from textblob import TextBlob
 from nltk import TweetTokenizer
-import flair
+import matplotlib.pyplot as plt
+
+'''
+import flair  # installing flair leads to issues with CUDA!
+'''
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB
 from sklearn.svm import SVC
@@ -17,8 +21,10 @@ from sklearn.ensemble import StackingClassifier
 from sklearn.inspection import permutation_importance
 import regex as re
 import warnings
+from sklearn.feature_selection import SelectFromModel
 
 warnings.filterwarnings("ignore")
+np.random_state = 0
 
 
 class FeatureEngineer:
@@ -35,7 +41,9 @@ class FeatureEngineer:
         """
         self.tweet_tokenizer = TweetTokenizer()
         self.vader_analyzer = SentimentIntensityAnalyzer()
+        '''
         self.flair_analyzer = flair.models.TextClassifier.load("en-sentiment")
+        '''
 
     @staticmethod
     def sequence_len(text_data):
@@ -320,9 +328,11 @@ class FeatureEngineer:
         best_textblob_token_sent.name = "best_textblob_token_sentiment"
         return pd.concat([best_textblob_token_sent, worst_textblob_token_sent], axis=1)
 
+    '''
     def flair_sequence_sentiment(self, text_data):
         """
         Estimates the sequence sentiment using flair.
+        Flair leads to issues with cuda. Thus it can't be used with all environments.
 
         :param pd.Series text_data: a Series containing the sequences
         :return: a pd.Series containing the estimated sequence sentiments.
@@ -348,8 +358,9 @@ class FeatureEngineer:
         flair_sequence_sent = text_data.apply(func=sentiment)
         flair_sequence_sent.name = "flair_sequence_sentiment"
         return flair_sequence_sent
+    '''
 
-    def create_all(self, data, x_col="text", y_col="label", all_tokens=None):
+    def create_all(self, data, write_name, x_col="text", y_col="label", all_tokens=None):
         """
         Extracts all features this class can automatically extract.
 
@@ -357,6 +368,8 @@ class FeatureEngineer:
         :param str x_col: the name of the column containing the text sequences
         :param str y_col: the name of the column containing the class labes
         :param pd.Series all_tokens: contains all tokens found by nltk.TweetTokenizer
+        :param bool write_name: defines whether the created features have to be written to a csv file or not.
+        Doesn't write if None, writes a file with having the given name otherwise.
         :return: a dictionary having the keys "x", "y", and "all_tokens". The value of the key "x" contains a
         pd.DataFrame having all extracted features. The value of the key "y" is a pd.Series containing the class labels,
         and the value of the key "all_tokens" is a pd.Series containing all tokens found by nltk.TweetTokenizer in
@@ -368,30 +381,35 @@ class FeatureEngineer:
         num_tokens = self.num_tweet_tokens(text_data=text)
         punctuation_count = self.punctuation(text_data=text)
         if all_tokens is None:
-            bow_result = self.bow(text_data=text)
+            bow_result = self.simple_bow(text_data=text)
             bow = bow_result["features"]
             all_tokens = bow_result["all_tokens"]
         else:
-            bow = self.bow(text_data=text, all_tokens=all_tokens)["features"]
+            bow = self.simple_bow(text_data=text, all_tokens=all_tokens)["features"]
 
         vader = self.vader_sequence_sentiment(text_data=text)
         tb_token = self.textblob_tokenwise_sentiment(text_data=text)
         tb_seq = self.textblob_sequence_sentiment(text_data=text)
         tb_sub = self.textblob_sequence_subjectivity(text_data=text)
+        '''
         flair_seq = self.flair_sequence_sentiment(text_data=text)
+        '''
         x = pd.concat([seq_len,
                        num_tokens,
                        vader,
                        tb_token,
                        tb_seq,
                        tb_sub,
-                       flair_seq,
                        punctuation_count,
                        bow],
-                      axis=1)
+                      axis=1)  # add flair_seq if using flair as well
+
+        if not write_name is None:
+            pd.concat([x, y], axis=1).to_csv("../../data/manual_features/" + write_name + ".csv")
         return {"x": x, "y": y, "all_tokens": all_tokens}
 
-    def perform_classification(self, clf, model_name, X_train, y_train, X_test, y_test, f_i=False):
+    def perform_classification(self, clf, model_name, X_train, y_train, X_test, y_test, pre_f_i=False, pre_count=None,
+                               post_f_i=False):
         """
         Performs classification on the extracted features.
 
@@ -401,42 +419,106 @@ class FeatureEngineer:
         :param pd.Series y_train: contains all targets of the training data
         :param pd.DataFrame X_test: contains all extracted features of the test data
         :param pd.Series y_test: contains all targets of the test data
-        :param bool f_i: if True, calculates feature importance (extremely time-complex)
+        :param bool pre_f_i: if True, calculates feature importances for models having .coef_ or .feature_importanmces_
+        using sklearn.feature_selection.SelectFromModel (a simple form of forward selection)
+        :param int pre_count: Determines the feature pre selection.
+        :param bool post_f_i: if True, PermutationImportance is performed. THis might be extremely time-consuming.
         """
         print("\n" + model_name + ":")
-        clf.fit(X=X_train, y=y_train)
-        preds = clf.predict(X=X_test)
-        print("pred length:", len(preds), "pred sum:", preds.sum())
-        print("f1 on test:", f1_score(y_true=y_test, y_pred=preds))
-        print("accuracy on test:", accuracy_score(y_true=y_test, y_pred=preds))
-        if f_i:
-            importances = permutation_importance(estimator=clf, X=X_test, y=y_test).importances_mean
-            importances_mapped = pd.Series(data=importances, index=X_test.columns)
-            print("feature importances:\n", importances_mapped, "\n")
+        if pre_f_i:
+
+            def value_to_bool(value):
+                """
+                Indicates whether a feature is important or not.
+                Assumption: A Feature that is important on at least 7/10 Data Subsets is indeed important.
+
+                :param float value: a value between 0 and 10
+                :return: Returns True if a given value is bigger than 7.
+                """
+                if value >= 7:
+                    return True
+                return False
+            print("performing pre selection...")
+            feature_selector = SelectFromModel(estimator=lr, max_features=pre_count)
+
+            # for more robustness: average over 10 non-disjoint random data subsets:
+            all_ids = X_train.index
+            random_draw_indices = np.random.randint(low=0, high=len(all_ids), size=(10, int(len(all_ids)*0.5),))
+            best_features_mask = np.zeros(len(X_train.columns))
+            for subset in random_draw_indices:
+                feature_selector.fit(X=X_train.loc[subset, :], y=y_train[subset])
+                best_features_mask = best_features_mask + feature_selector.get_support().astype(float)
+
+            total_best_features_mask = pd.Series(best_features_mask).apply(func=value_to_bool).values
+            best_features = X_train.columns[total_best_features_mask]
+            print("\ntotal number of features:", len(total_best_features_mask), "\n")
+            print("pre selected features:", len(best_features), "\n")
+
+            X_train = X_train.loc[:, best_features]
+            X_test = X_test.loc[:, best_features]
+
+            print("metrics using these features:")
+            clf.fit(X=X_train, y=y_train)
+            preds = clf.predict(X=X_test)
+            print("pred length:", len(preds), "pred sum:", preds.sum())
+            print("f1 on test:", f1_score(y_true=y_test, y_pred=preds))
+            print("accuracy on test:", accuracy_score(y_true=y_test, y_pred=preds))
+
+            if post_f_i:
+                print("\nperforming permutation importance:")
+                importances = permutation_importance(estimator=clf, X=X_test, y=y_test).importances_mean
+                importances_mapped = pd.Series(data=importances, index=X_test.columns)
+                print("feature importances:\n", importances_mapped, "\n")
+                return {"importances": importances_mapped}
+        else:
+            clf.fit(X=X_train, y=y_train)
+            preds = clf.predict(X=X_test)
+            print("pred length:", len(preds), "pred sum:", preds.sum())
+            print("f1 on test:", f1_score(y_true=y_test, y_pred=preds))
+            print("accuracy on test:", accuracy_score(y_true=y_test, y_pred=preds))
+            if post_f_i:
+                print("\nperforming permutation importance:")
+                importances = permutation_importance(estimator=clf, X=X_test, y=y_test).importances_mean
+                importances_mapped = pd.Series(data=importances, index=X_test.columns)
+                print("feature importances:\n", importances_mapped, "\n")
+                return {"importances": importances_mapped}
 
 
+engineer = FeatureEngineer()
 # define train and test data
-folds = tools.read_folds(prefix="undersampled_stopped_text", test_fold_id=0)
+'''
+folds = tools.read_folds(read_path="../../data/folds_nlp", prefix="undersampled_stopped_text", test_fold_id=0)
 train_folds = folds["available_for_train"]
 test_data = folds["test"]
 train_data = train_folds[0]
 for i in range(1, len(train_folds) - 1):
     pd.concat([train_data, train_folds[i]], axis=0)
 
+
 # manually engineer the text features
-engineer = FeatureEngineer()
-train_engineered = engineer.create_all(data=train_data)
+train_engineered = engineer.create_all(data=train_data, write_name="train_data")
 X_train = train_engineered["x"]
 y_train = train_engineered["y"]
 all_tokens = train_engineered["all_tokens"]
-test_engineered = engineer.create_all(data=test_data, all_tokens=all_tokens)
+test_engineered = engineer.create_all(data=test_data, all_tokens=all_tokens, write_name="test_data")
 X_test = test_engineered["x"]
 y_test = test_engineered["y"]
+'''
 
-print("perform classification with multiple models:")
-ada = AdaBoostClassifier(random_state=0)
-engineer.perform_classification(clf=ada,
-                                model_name="AdaBoostClassifier",
+# read the data, since it's already created
+train_data = pd.read_csv("../../data/manual_features/train_data.csv")
+test_data = pd.read_csv("../../data/manual_features/test_data.csv")
+X_train = train_data.drop("label", axis=1)
+y_train = train_data["label"]
+X_test = test_data.drop("label", axis=1)
+y_test = test_data["label"]
+all_features = pd.Series(data=np.zeros(shape=len(X_train.columns)), index=X_train.columns, name="feature_importances")
+
+# check the performance
+lr = LogisticRegression(random_state=0, max_iter=1_000)
+'''
+engineer.perform_classification(clf=lr,
+                                model_name="LogisticRegression",
                                 X_train=X_train,
                                 y_train=y_train,
                                 X_test=X_test,
@@ -445,6 +527,14 @@ engineer.perform_classification(clf=ada,
 dt = DecisionTreeClassifier(random_state=0)
 engineer.perform_classification(clf=dt,
                                 model_name="DecisionTreeClassifier",
+                                X_train=X_train,
+                                y_train=y_train,
+                                X_test=X_test,
+                                y_test=y_test)
+
+ada = AdaBoostClassifier(random_state=0)
+engineer.perform_classification(clf=ada,
+                                model_name="AdaBoostClassifier",
                                 X_train=X_train,
                                 y_train=y_train,
                                 X_test=X_test,
@@ -466,14 +556,6 @@ engineer.perform_classification(clf=xgb,
                                 X_test=X_test,
                                 y_test=y_test)
 
-lr = LogisticRegression(random_state=0, max_iter=1_000)
-engineer.perform_classification(clf=lr,
-                                model_name="LogisticRegression",
-                                X_train=X_train,
-                                y_train=y_train,
-                                X_test=X_test,
-                                y_test=y_test)
-
 svc = SVC(random_state=0)
 engineer.perform_classification(clf=svc,
                                 model_name="SVC",
@@ -490,7 +572,7 @@ engineer.perform_classification(clf=nb,
                                 X_test=X_test,
                                 y_test=y_test)
 
-weak_learners = {"nb": nb, "svc": svc, "lr": lr, "ada": ada}
+weak_learners = [nb, svc, lr, ada]
 stacking = StackingClassifier(estimators=weak_learners)
 engineer.perform_classification(clf=rf,
                                 model_name="StackingClassifier",
@@ -498,3 +580,18 @@ engineer.perform_classification(clf=rf,
                                 y_train=y_train,
                                 X_test=X_test,
                                 y_test=y_test)
+'''
+
+# logistic regression is a very simple model but performs surprisingly well.
+# investigate it further:
+lr_importances = engineer.perform_classification(clf=lr,
+                                                 model_name="LogisticRegression",
+                                                 X_train=X_train,
+                                                 y_train=y_train,
+                                                 X_test=X_test,
+                                                 y_test=y_test,
+                                                 post_f_i=True,
+                                                 pre_f_i=True)["importances"]
+lr_top_50_features = lr_importances.sort_values(ascending=False).head(50)
+lr_top_50_features.plot(kind="bar")
+plt.show()

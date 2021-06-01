@@ -8,6 +8,7 @@ import tools
 import torch.nn as nn
 
 device = tools.select_device()
+print("device:", device)
 
 
 def synthesize_rnn_loader(seq_len, num_class_members, voc_size, device, batch_size, max_pad=8, random_state=0):

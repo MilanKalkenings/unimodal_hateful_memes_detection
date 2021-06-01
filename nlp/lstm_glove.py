@@ -9,6 +9,7 @@ import torch.nn as nn
 import os
 
 device = tools.select_device()
+print("device:", device)
 
 
 def read_glove_embedding(glove_path):

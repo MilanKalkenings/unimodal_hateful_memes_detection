@@ -8,6 +8,7 @@ import tools
 import torch.nn as nn
 
 device = tools.select_device()
+print("device:", device)
 
 
 class GRUEClassifier(nn.Module):
