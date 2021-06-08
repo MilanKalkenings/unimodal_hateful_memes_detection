@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
-import os
-import shutil
+import warnings
+
+warnings.filterwarnings("ignore")
 
 np.random_state = 0
 
@@ -52,48 +53,39 @@ class ImageFoldCreator:
             last_border = border
         return fold_indices
 
-    def create_regular(self, img_folder="../../data/hateful_memes_data/img", prefix="img", x_name="img", y_name="label"):
+    def create_regular(self, prefix="img"):
         """
-        Creates folds without any further transformations of undersampling.
+        Creates folds without undersampling.
 
         :param str prefix: a concatenation of the prefix and the fold number is used as the name of the .csv file
-        in which the respective folds are stored
+        in which the respective folds will be stored
         """
-        def distribute_images(row, pos_path, neg_path):
-            if row[y_name] == 0:  # non-hateful memes are of the negative class
-                source_path = img_folder + "/" + row[x_name]
-                shutil.copy(src=source_path, dst=neg_path + row[x_name])
-            else:
-                source_path = img_folder + "/" + row[x_name]
-                shutil.copy(src=source_path, dst=pos_path + row[x_name])
-
-        def clean_path(path):
-            return path[3:]
-
-        fold_ids = self.get_fold_ids(num_indices=len(self.data), num_folds=6)
-        for i, fold in enumerate(fold_ids):
-            print("handling fold", i+1)
-            fold_path = self.destination_path + "/fold" + str(i)
-            pos_path = fold_path + "/" + prefix + "_pos" + str(i)
-            neg_path = fold_path + "/" + prefix + "_neg" + str(i)
-            if not os.path.exists(fold_path):
-                os.makedirs(fold_path)
-            if not os.path.exists(pos_path):
-                os.makedirs(pos_path)
-            if not os.path.exists(neg_path):
-                os.makedirs(neg_path)
-
-            fold = pd.DataFrame(self.data.iloc[fold, :])
-            fold["img"] = fold["img"].apply(func=clean_path)
-            fold.apply(func=distribute_images, pos_path=pos_path, neg_path=neg_path, axis=1)
-
-    def create_custom(self, prefix="img"):
         fold_ids = self.get_fold_ids(num_indices=len(self.data), num_folds=6)
         for i, fold in enumerate(fold_ids):
             fold = pd.DataFrame(self.data.iloc[fold, :])
             fold.to_csv(self.destination_path + prefix + str(i) + ".csv", index=False)
 
+    def create_undersampled(self, prefix="undersampled_img"):
+        """
+        Creates an undersampled dataset having the same amount of members per category in the target variable.
+
+        :param str prefix: a concatenation of the prefix and the fold number is used as the name of the .csv file
+        in which the respective folds will be stored
+        """
+        goal = self.data["label"].value_counts().min()  # undersampling goal: equal amount of observations per class
+        data_pos = self.data.loc[self.data["label"] == 1, :]
+        data_neg = self.data.loc[self.data["label"] == 0, :]
+        data = pd.concat([data_pos.head(goal), data_neg.head(goal)], axis=0, ignore_index=True)
+        fold_ids = self.get_fold_ids(num_indices=len(data), num_folds=6)
+        for i, fold in enumerate(fold_ids):
+            fold = pd.DataFrame(data.iloc[fold, :])
+            fold.to_csv(self.destination_path + prefix + str(i) + ".csv", index=False)
+
+
 image_fold_creator = ImageFoldCreator(train_path="../../data/hateful_memes_data/train.jsonl",
                                       val_path="../../data/hateful_memes_data/dev.jsonl",
                                       destination_path="../../data/folds_cv/")
-image_fold_creator.create_custom()
+
+# image_fold_creator.create_custom()
+image_fold_creator.create_exact_matching()
+image_fold_creator.create_undersampled()

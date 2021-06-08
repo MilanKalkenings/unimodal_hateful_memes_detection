@@ -6,6 +6,8 @@ from sklearn.ensemble import AdaBoostClassifier
 import xgboost
 from sklearn.metrics import f1_score
 from sklearn.metrics import accuracy_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import precision_score
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from textblob import TextBlob
 from nltk import TweetTokenizer
@@ -438,12 +440,13 @@ class FeatureEngineer:
                 if value >= 7:
                     return True
                 return False
-            print("performing pre selection...")
+
+            print("Performing Preselection...")
             feature_selector = SelectFromModel(estimator=lr, max_features=pre_count)
 
             # for more robustness: average over 10 non-disjoint random data subsets:
             all_ids = X_train.index
-            random_draw_indices = np.random.randint(low=0, high=len(all_ids), size=(10, int(len(all_ids)*0.5),))
+            random_draw_indices = np.random.randint(low=0, high=len(all_ids), size=(10, int(len(all_ids) * 0.5),))
             best_features_mask = np.zeros(len(X_train.columns))
             for subset in random_draw_indices:
                 feature_selector.fit(X=X_train.loc[subset, :], y=y_train[subset])
@@ -451,21 +454,22 @@ class FeatureEngineer:
 
             total_best_features_mask = pd.Series(best_features_mask).apply(func=value_to_bool).values
             best_features = X_train.columns[total_best_features_mask]
-            print("\ntotal number of features:", len(total_best_features_mask), "\n")
-            print("pre selected features:", len(best_features), "\n")
+            print("\nTotal number of Features:", len(total_best_features_mask), "\n")
+            print("Preselected Features:", len(best_features), "\n")
 
             X_train = X_train.loc[:, best_features]
             X_test = X_test.loc[:, best_features]
 
-            print("metrics using these features:")
+            print("Metrics using these Features:")
             clf.fit(X=X_train, y=y_train)
             preds = clf.predict(X=X_test)
-            print("pred length:", len(preds), "pred sum:", preds.sum())
-            print("f1 on test:", f1_score(y_true=y_test, y_pred=preds))
-            print("accuracy on test:", accuracy_score(y_true=y_test, y_pred=preds))
+            print("Accuracy on test:", accuracy_score(y_true=y_test, y_pred=preds))
+            print("F1 on test:", f1_score(y_true=y_test, y_pred=preds))
+            print("Precision on test:", precision_score(y_true=y_test, y_pred=preds))
+            print("Recall on test:", recall_score(y_true=y_test, y_pred=preds))
 
             if post_f_i:
-                print("\nperforming permutation importance:")
+                print("\nPerforming Permutation Importance:")
                 importances = permutation_importance(estimator=clf, X=X_test, y=y_test).importances_mean
                 importances_mapped = pd.Series(data=importances, index=X_test.columns)
                 print("feature importances:\n", importances_mapped, "\n")
@@ -473,14 +477,15 @@ class FeatureEngineer:
         else:
             clf.fit(X=X_train, y=y_train)
             preds = clf.predict(X=X_test)
-            print("pred length:", len(preds), "pred sum:", preds.sum())
-            print("f1 on test:", f1_score(y_true=y_test, y_pred=preds))
-            print("accuracy on test:", accuracy_score(y_true=y_test, y_pred=preds))
+            print("Accuracy on test:", accuracy_score(y_true=y_test, y_pred=preds))
+            print("F1 on test:", f1_score(y_true=y_test, y_pred=preds))
+            print("Precision on test:", precision_score(y_true=y_test, y_pred=preds))
+            print("Recall on test:", recall_score(y_true=y_test, y_pred=preds))
             if post_f_i:
-                print("\nperforming permutation importance:")
+                print("\nPerforming Permutation Importance:")
                 importances = permutation_importance(estimator=clf, X=X_test, y=y_test).importances_mean
                 importances_mapped = pd.Series(data=importances, index=X_test.columns)
-                print("feature importances:\n", importances_mapped, "\n")
+                print("Feature Importances:\n", importances_mapped, "\n")
                 return {"importances": importances_mapped}
 
 

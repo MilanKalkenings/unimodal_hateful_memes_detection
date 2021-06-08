@@ -183,6 +183,7 @@ class LSTMGloveWrapper:
         # train loop
         for epoch in range(n_epochs):
             print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+            model.train()
             for i, batch in enumerate(train_loader):
                 x_batch, y_batch = batch
                 probas = model(x=x_batch)  # model(x) = model.__call__(x) performs forward (+ more)
@@ -215,8 +216,11 @@ class LSTMGloveWrapper:
         y_name = parameters["y_name"]
         device = parameters["device"]
 
+        model.eval()
         acc = 0
         f1 = 0
+        precision = 0
+        recall = 0
 
         preprocessed = self.preprocess(data=data,
                                        max_seq_len=max_seq_len,
@@ -235,11 +239,17 @@ class LSTMGloveWrapper:
             metrics = tools.evaluate(y_true=y_batch, y_probas=preds)
             acc += metrics["acc"]
             f1 += metrics["f1"]
+            precision += metrics["precision"]
+            recall += metrics["recall"]
         acc /= len(loader)
         f1 /= len(loader)
+        precision /= len(loader)
+        recall /= len(loader)
 
         print("Accuracy:", acc)
         print("F1-Score:", f1)
+        print("Precision:", precision)
+        print("Recall:", recall)
         return {"acc": acc, "f1": f1}
 
     def evaluate_hyperparameters(self, folds, parameters, verbose=2):
@@ -295,6 +305,7 @@ class LSTMGloveWrapper:
 
             for epoch in range(n_epochs):
                 print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+                model.train()
                 for i, batch in enumerate(train_loader):
                     x_batch, y_batch = batch
                     probas = model(x=x_batch)  # forward
@@ -319,13 +330,13 @@ class LSTMGloveWrapper:
 
 glove_map = read_glove_embedding(glove_path="../../data/pretrained_embeddings/glove.6B.50d.txt")
 
-folds = tools.read_folds(prefix="stopped_text",
+folds = tools.read_folds(prefix="undersampled_stopped_text",
                          read_path="../../data/folds_nlp",
                          test_fold_id=0)
 train_folds = folds["available_for_train"]
 test_fold = folds["test"]
 
-parameters = {"n_epochs": 10,
+parameters = {"n_epochs": 30,
               "lr": 0.001,
               "max_seq_len": 16,
               "n_layers": 3,

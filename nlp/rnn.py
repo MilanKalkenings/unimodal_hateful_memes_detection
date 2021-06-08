@@ -248,6 +248,7 @@ class RNNWrapper:
 
             for epoch in range(n_epochs):
                 print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+                model.train()
                 for batch in train_loader:
                     x_batch, y_batch = batch
                     x_batch = x_batch.reshape(-1, max_seq_len, feats_per_time_step)
@@ -287,8 +288,12 @@ class RNNWrapper:
         y_name = parameters["y_name"]
         device = parameters["device"]
 
+        model.eval()
         acc = 0
         f1 = 0
+        precision = 0
+        recall = 0
+
         if synth_loader is None:
             preprocessed = self.preprocess(data=data,
                                            max_seq_len=max_seq_len,
@@ -311,11 +316,17 @@ class RNNWrapper:
             metrics = tools.evaluate(y_true=y_batch, y_probas=preds)
             acc += metrics["acc"]
             f1 += metrics["f1"]
+            precision += metrics["precision"]
+            recall += metrics["recall"]
         acc /= len(loader)
         f1 /= len(loader)
+        precision /= len(loader)
+        recall /= len(loader)
 
         print("Accuracy:", acc)
         print("F1-Score:", f1)
+        print("Precision:", precision)
+        print("Recall:", recall)
         return {"acc": acc, "f1": f1}
 
     def fit(self, train_data, best_parameters, verbose=0, synth_loader=None):
@@ -367,6 +378,7 @@ class RNNWrapper:
         # train loop
         for epoch in range(n_epochs):
             print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+            model.train()
             for batch in train_loader:
                 x_batch, y_batch = batch
                 x_batch = x_batch.reshape(-1, max_seq_len, feats_per_time_step)
@@ -383,7 +395,9 @@ class RNNWrapper:
         return {"model": model, "vocab": vocab}
 
 
-folds = tools.read_folds(prefix="undersampled_stopped_text", test_fold_id=0)
+folds = tools.read_folds(prefix="undersampled_stopped_text",
+                         read_path="../../data/folds_nlp",
+                         test_fold_id=0)
 train_folds = folds["available_for_train"]
 test_fold = folds["test"]
 
@@ -400,7 +414,14 @@ parameters = {"n_epochs": 5,
               "device": device}
 
 rnn_wrapper = RNNWrapper()
-print(rnn_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters, verbose=1))
+train_data = train_folds[0]
+for i in range(1, len(train_folds) - 1):
+    pd.concat([train_data, train_folds[i]], axis=0)
+fitted = rnn_wrapper.fit(train_data=train_data, best_parameters=parameters, verbose=1)
+vocab = fitted["vocab"]
+best_rnne_clf = fitted["model"]
+print("PERFORMANCE ON TEST:")
+rnn_wrapper.predict(model=best_rnne_clf, data=test_fold, parameters=parameters, vocab=vocab, synth_loader=None)
 
 '''
 # to demonstrate that these models can reach way better results on other data:

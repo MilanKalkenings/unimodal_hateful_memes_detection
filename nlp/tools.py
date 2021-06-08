@@ -2,6 +2,8 @@ import pandas as pd
 import torch
 import numpy as np
 from sklearn.metrics import accuracy_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import precision_score
 from sklearn.metrics import f1_score
 
 
@@ -45,7 +47,7 @@ def read_folds(prefix, read_path, num_folds=6, test_fold_id=0):
 def evaluate(y_true, y_probas):
     """
     Evaluates the prediction-probabilities of a model
-    using the accuracy_score and the f1_score.
+    using the accuracy score, the precision score, the recall score, and the f1 score.
 
     :param torch.Tensor y_true: true labels
     :param torch.Tensor y_probas: predicted class probabilities
@@ -55,7 +57,9 @@ def evaluate(y_true, y_probas):
     y_batch_np = y_true.cpu().detach().numpy()
     acc = accuracy_score(y_true=y_batch_np, y_pred=preds_batch_np)
     f1 = f1_score(y_true=y_batch_np, y_pred=preds_batch_np, average='weighted')
-    return {"acc": acc, "f1": f1}
+    precision = precision_score(y_true=y_batch_np, y_pred=preds_batch_np, zero_division=0)
+    recall = recall_score(y_true=y_batch_np, y_pred=preds_batch_np, zero_division=0)
+    return {"acc": acc, "f1": f1, "precision": precision, "recall": recall}
 
 
 def train_val_split(data_folds, val_fold_id):

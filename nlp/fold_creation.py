@@ -75,7 +75,7 @@ class TextFoldCreator:
         Creates undersampled data folds. Each fold has the same amount of members per class.
 
         :param str prefix: a concatenation of the prefix and the fold number is used as the name of the .csv file
-        in which the respective folds are stores
+        in which the respective folds will be stored
         """
         goal = self.data["label"].value_counts().min()  # undersampling goal: equal amount of observations per class
         data_pos = self.data.loc[self.data["label"] == 1, :]
@@ -91,7 +91,7 @@ class TextFoldCreator:
         Creates folds without undersampling or stopword-elimination.
 
         :param str prefix: a concatenation of the prefix and the fold number is used as the name of the .csv file
-        in which the respective folds are stored
+        in which the respective folds will be stored
         """
         fold_ids = self.get_fold_ids(num_indices=len(self.data), num_folds=6)
         for i, fold in enumerate(fold_ids):
@@ -119,7 +119,7 @@ class TextFoldCreator:
         Creates folds on which both, undersampling and stopword-elimination has been performed.
 
         :param str prefix: a concatenation of the prefix and the fold number is used as the name of the .csv file
-        in which the respective folds are stores
+        in which the respective folds will be stored
         :param str x_name: name of the column containing the text sequences of each observation
         """
         goal = self.data["label"].value_counts().min()  # undersampling goal: equal amount of observations per class

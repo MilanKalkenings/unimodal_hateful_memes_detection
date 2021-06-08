@@ -220,6 +220,7 @@ class LSTMEWrapper:
 
             for epoch in range(n_epochs):
                 print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+                model.train()
                 for i, batch in enumerate(train_loader):
                     x_batch, y_batch = batch
                     probas = model(x=x_batch)  # forward
@@ -258,8 +259,11 @@ class LSTMEWrapper:
         y_name = parameters["y_name"]
         device = parameters["device"]
 
+        model.eval()
         acc = 0
         f1 = 0
+        precision = 0
+        recall = 0
 
         preprocessed = self.preprocess(data=data,
                                        max_seq_len=max_seq_len,
@@ -279,11 +283,17 @@ class LSTMEWrapper:
             metrics = tools.evaluate(y_true=y_batch, y_probas=preds)
             acc += metrics["acc"]
             f1 += metrics["f1"]
+            precision += metrics["precision"]
+            recall += metrics["recall"]
         acc /= len(loader)
         f1 /= len(loader)
+        precision /= len(loader)
+        recall /= len(loader)
 
         print("Accuracy:", acc)
         print("F1-Score:", f1)
+        print("Precision:", precision)
+        print("Recall:", recall)
         return {"acc": acc, "f1": f1}
 
     def fit(self, train_data, best_parameters, verbose=2):
@@ -331,6 +341,7 @@ class LSTMEWrapper:
         # train loop
         for epoch in range(n_epochs):
             print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+            model.train()
             for i, batch in enumerate(train_loader):
                 x_batch, y_batch = batch
                 probas = model(x=x_batch)  # model(x) = model.__call__(x) performs forward (+ more)
@@ -348,20 +359,20 @@ class LSTMEWrapper:
         return {"model": model, "vocab": vocab}
 
 
-folds = tools.read_folds(prefix="stopped_text",
+folds = tools.read_folds(prefix="undersampled_stopped_text",
                          read_path="../../data/folds_nlp",
                          test_fold_id=0)
 train_folds = folds["available_for_train"]
 test_fold = folds["test"]
 
-parameters = {"n_epochs": 3,
+parameters = {"n_epochs": 5,
               "lr": 0.001,
               "max_seq_len": 16,
               "n_layers": 3,
-              "feats_per_time_step": 128,
-              "hidden_size": 128,
+              "feats_per_time_step": 8,
+              "hidden_size": 64,
               "n_classes": 2,
-              "batch_size": 64,
+              "batch_size": 32,
               "x_name": "text",
               "y_name": "label",
               "device": device}

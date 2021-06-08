@@ -125,6 +125,7 @@ class BertWrapper:
 
             for epoch in range(n_epochs):
                 print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+                model.train()
                 for batch in train_loader:
                     x_batch, y_batch, attention_mask = batch
                     probas = torch.flatten(model(x=x_batch, attention_mask=attention_mask))  # forward
@@ -160,8 +161,11 @@ class BertWrapper:
         y_name = parameters["y_name"]
         device = parameters["device"]
 
+        model.eval()
         acc = 0
         f1 = 0
+        precision = 0
+        recall = 0
         loader = self.preprocess(data=data,
                                  max_seq_len=max_seq_len,
                                  batch_size=batch_size,
@@ -175,11 +179,17 @@ class BertWrapper:
             metrics = tools.evaluate(y_true=y_batch, y_probas=probas)
             acc += metrics["acc"]
             f1 += metrics["f1"]
+            precision += metrics["precision"]
+            recall += metrics["recall"]
         acc /= len(loader)
         f1 /= len(loader)
+        precision /= len(loader)
+        recall /= len(loader)
 
         print("Accuracy:", acc)
         print("F1-Score:", f1)
+        print("Precision:", precision)
+        print("Recall:", recall)
         return {"acc": acc, "f1": f1}
 
     def fit(self, train_data, best_parameters, verbose=0):
@@ -216,6 +226,7 @@ class BertWrapper:
         # train loop
         for epoch in range(n_epochs):
             print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+            model.train()
             for batch in train_loader:
                 x_batch, y_batch, attention_mask = batch
                 # model(x) = model.__call__(x) performs forward (+ more)

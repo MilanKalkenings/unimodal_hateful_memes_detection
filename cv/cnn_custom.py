@@ -1,22 +1,22 @@
-import PIL.features
-
 import tools
 import numpy as np
 import pandas as pd
-from PIL import Image
 import torch
 from torchvision import transforms
 import torch.nn as nn
-from torch.utils.data import DataLoader, RandomSampler, Dataset
+from torch.utils.data import DataLoader, RandomSampler
 from transformers import AdamW
+from sklearn.metrics import accuracy_score
 
 device = tools.select_device()
+print("device:", device)
 
 
 class CNNClassifier(nn.Module):
     """
     A CNN-based classifier that is capable of performing dropout-regularization.
     """
+
     def __init__(self, conv_ch1, conv_ch2, linear_size, kernel_size, pooling_size, linear_input_size=None):
         """
         Constructor.
@@ -38,8 +38,9 @@ class CNNClassifier(nn.Module):
         self.conv2 = nn.Conv2d(in_channels=conv_ch1, out_channels=conv_ch2, kernel_size=kernel_size)
 
         if linear_input_size:  # evaluates as False if linear_input_size is None
-            self.dropout = nn.Dropout()
+            self.dropout = nn.Dropout(p=0.3)  # probability of an input being ignored
             self.linear1 = nn.Linear(in_features=linear_input_size, out_features=linear_size)
+            self.batch_norm = nn.BatchNorm1d(linear_size)
             self.linear2 = nn.Linear(in_features=linear_size, out_features=1)
             self.sigmoid = nn.Sigmoid()
 
@@ -86,55 +87,9 @@ class CNNClassifier(nn.Module):
             x = x.view(-1, self.linear_input_size)  # flatten out for the linear layers
             x = self.dropout(x)
             x = self.linear1(x)
+            x = self.batch_norm(x)
             x = self.linear2(x)
         return self.sigmoid(x)
-
-
-class CustomDataset(Dataset):
-    """
-    A custom Image Dataset that performs transformations on the images contained in it and shifts them to
-    a given device.
-    """
-
-    def __init__(self, data, transform_pipe, x_name="img", y_name="label", device="cuda"):
-        """
-        Constructor.
-
-        :param pd.DataFrame data: A DataFrame containing one column of image paths and another columns of image labels.
-        :param transform_pipe: a transform:Composition of all transformations that have to be applied to the images
-        :param str x_name: name of the image column
-        :param str y_name: name of the label column
-        :param str device: name of the device that has to be used
-        """
-        self.data = data
-        self.transform_pipe = transform_pipe
-        self.x_name = x_name
-        self.y_name = y_name
-        self.device = device
-
-    def __len__(self):
-        """
-        Returns the number of observations in the whole dataset
-
-        :return: the length of the dataset
-        """
-        return len(self.data)
-
-    def __getitem__(self, i):
-        """
-        Is used by DataLoaders to draw the observation at index i in the dataset.
-
-        :param int i: index of an observation
-        :return: a list containing the image-data and the label of one observation
-        """
-        img_path = "../../data/hateful_memes_data/" + self.data[self.x_name].iloc[i]
-        x = self.transform_pipe(Image.open(img_path, formats=["PNG"])).to(self.device)
-        # print("x size:", x.size(), "path:", img_path)
-        if x.size(0) == 4:  # very few images have one more channel, change to RGB format
-            image = Image.open(img_path, formats=["PNG"]).convert("RGB")
-            x = self.transform_pipe(image).to(device)
-        y = torch.tensor(self.data[self.y_name][i], dtype=torch.float).to(self.device)
-        return [x, y]
 
 
 class CNNWrapper:
@@ -153,7 +108,7 @@ class CNNWrapper:
         transform_pipe = parameters["transform_pipe"]
         batch_size = parameters["batch_size"]
         device = parameters["device"]
-        custom_dataset = CustomDataset(data=data, transform_pipe=transform_pipe, device=device)
+        custom_dataset = tools.CustomDataset(data=data, transform_pipe=transform_pipe, device=device)
         sampler = RandomSampler(data_source=custom_dataset)
         loader = DataLoader(dataset=custom_dataset, batch_size=batch_size, sampler=sampler)
         return {"loader": loader}
@@ -225,6 +180,7 @@ class CNNWrapper:
         # train loop
         for epoch in range(n_epochs):
             print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+            model.train()
             for batch in train_loader:
                 x_batch, y_batch = batch
                 # model(x) = model.__call__(x) performs forward (+ more)
@@ -238,6 +194,87 @@ class CNNWrapper:
                 print("Metrics on training data after epoch", epoch + 1, ":")
                 self.predict(model=model, data=train_data, parameters=best_parameters)
         return {"model": model}
+
+    def demo_one_batch(self, train_data, best_parameters):
+        """
+        Trains an CNNClassifier on one batch of the train_data using a set of parameters.
+        This function is used to demonstrate that the model can learn the
+        patterns of some given data. It will vastly overfit the batch, if the model works properly.
+        Functions like these are helpful for debugging neural networks.
+
+        :param pd.DataFrame train_data: data on which the model has to be trained
+        :param dict best_parameters: a dictionary containing the best parameters
+        (found using evaluate hyperparameters of this class). The dictionary has at least the keys "n_epochs", "lr",
+        "linear_size", "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe",
+        and the respective values
+        """
+        # extract the parameters
+        linear_size = best_parameters["linear_size"]
+        conv_ch1 = best_parameters["conv_ch1"]
+        conv_ch2 = best_parameters["conv_ch2"]
+        kernel_size = best_parameters["kernel_size"]
+        pooling_size = best_parameters["pooling_size"]
+        n_epochs = best_parameters["n_epochs"]
+        lr = best_parameters["lr"]
+        device = best_parameters["device"]
+
+        train_loader = self.preprocess(data=train_data, parameters=best_parameters)["loader"]
+        batch = next(iter(train_loader))
+
+        linear_input_size = self.find_linear_input_size(data=train_data, parameters=best_parameters)
+        model = CNNClassifier(linear_size=linear_size,
+                              conv_ch1=conv_ch1,
+                              conv_ch2=conv_ch2,
+                              linear_input_size=linear_input_size,
+                              kernel_size=kernel_size,
+                              pooling_size=pooling_size).to(device)
+        optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)
+        loss_func = nn.BCELoss()
+
+        # train loop
+        for epoch in range(n_epochs):
+            print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+            model.train()
+            x_batch, y_batch = batch
+            # model(x) = model.__call__(x) performs forward (+ more)
+            probas = torch.flatten(model(x=x_batch))
+            model.zero_grad()  # reset gradients from last step
+            batch_loss = loss_func(probas, y_batch)  # calculate loss
+            batch_loss.backward()  # calculate gradients
+            optimizer.step()  # update parameters
+
+            preds_batch_np = np.round(probas.cpu().detach().numpy())
+            y_batch_np = y_batch.cpu().detach().numpy()
+            print("accuracy:", accuracy_score(y_true=y_batch_np, y_pred=preds_batch_np))
+
+    def find_max_img_sizes(self, data, parameters):
+        """
+        Finds the maximum width and height of all the images represented by the paths in data.
+        This function can be used to determine the "size" parameter in transformation pipelines.
+
+        :param pd.DataFrame data: a dataframe representing an image dataset having at least one column with image paths
+        and one column with classification labels.
+        :param dict parameters: a dictionary having all necessary model parameters of the wrapped model class
+        as keys and the respective values.
+        :return: maximum width and maximum height over all images in data
+        """
+        parameters_shadow = parameters.copy()
+        transform_pipe = transforms.Compose([transforms.ToTensor()])
+        parameters_shadow["transform_pipe"] = transform_pipe
+        parameters_shadow["batch_size"] = 1
+        loader = self.preprocess(data=data, parameters=parameters_shadow)["loader"]
+        max_width = 0
+        max_height = 0
+        for batch in loader:
+            width = batch[0].size(2)
+            height = batch[0].size(3)
+            if width > max_width:
+                max_width = width
+            if height > max_height:
+                max_height = height
+        print(max_height)
+        print(max_width)
+        return {"height": max_height, "width": max_width}
 
     def evaluate_hyperparameters(self, folds, parameters, verbose=2):
         """
@@ -285,6 +322,7 @@ class CNNWrapper:
             optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)  # depends on model
 
             for epoch in range(n_epochs):
+                model.train()
                 print("=== Epoch", epoch + 1, "/", n_epochs, "===")
                 for i, batch in enumerate(train_loader):
                     x_batch, y_batch = batch
@@ -294,7 +332,7 @@ class CNNWrapper:
                     batch_loss.backward()  # calculate gradients
                     optimizer.step()  # update parameters
                     if verbose > 1:
-                        if i % int(len(train_loader) / 3) == 0:
+                        if i % int(len(train_loader) / 10) == 0:
                             print("iteration", i + 1, "/", len(train_loader), "; loss:", batch_loss.item())
                 if verbose > 0:
                     print("Metrics on training data after epoch", epoch + 1, ":")
@@ -318,12 +356,11 @@ class CNNWrapper:
         :return: a dictionary containing the f1_score and the accuracy_score of the models predictions on the data
         """
         # extract the parameters
-        transform_pipe = parameters["transform_pipe"]
-        batch_size = parameters["batch_size"]
-        device = parameters["device"]
-
+        model.eval()
         acc = 0
         f1 = 0
+        precision = 0
+        recall = 0
         loader = self.preprocess(data=data, parameters=parameters)["loader"]
         for batch in loader:
             x_batch, y_batch = batch
@@ -332,38 +369,63 @@ class CNNWrapper:
             metrics = tools.evaluate(y_true=y_batch, y_probas=probas)
             acc += metrics["acc"]
             f1 += metrics["f1"]
+            precision += metrics["precision"]
+            recall += metrics["recall"]
         acc /= len(loader)
         f1 /= len(loader)
+        precision /= len(loader)
+        recall /= len(loader)
 
         print("Accuracy:", acc)
         print("F1-Score:", f1)
+        print("Precision:", precision)
+        print("Recall:", recall)
         return {"acc": acc, "f1": f1}
 
 
-folds = tools.read_folds(prefix="img",
+folds = tools.read_folds(prefix="undersampled_img",
                          read_path="../../data/folds_cv",
                          test_fold_id=0)
 train_folds = folds["available_for_train"]
 test_fold = folds["test"]
 
-transform_pipe = transforms.Compose([transforms.Resize(255), transforms.CenterCrop(128), transforms.ToTensor()])
+# 65 test accuracy and confusion based metrics above 0.63 on undersampled_img
+transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True),
+                                     transforms.ToTensor()])
 parameters = {"transform_pipe": transform_pipe,
-              "n_epochs": 6,
-              "lr": 0.001,
-              "batch_size": 32,
+              "n_epochs": 20,
+              "lr": 0.0001,
+              "batch_size": 128,
               "device": device,
-              "conv_ch1": 8,
-              "conv_ch2": 16,
-              "linear_size": 64,
-              "kernel_size": 2,
+              "conv_ch1": 4,
+              "conv_ch2": 2,
+              "linear_size": 16,
+              "kernel_size": 3,
               "pooling_size": 2}
+'''
+# 67 test accuracy and confusion based metrics above 0.65 on undersampled_img
+transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True),
+                                     transforms.ToTensor()])
+parameters = {"transform_pipe": transform_pipe,
+              "n_epochs": 20,
+              "lr": 0.0001,
+              "batch_size": 128,
+              "device": device,
+              "conv_ch1": 4,
+              "conv_ch2": 2,
+              "linear_size": 32,
+              "kernel_size": 3,
+              "pooling_size": 2}
+'''
 
 train_data = train_folds[0]
 for i in range(1, len(train_folds) - 1):
     pd.concat([train_data, train_folds[i]], axis=0)
 
 cnn_wrapper = CNNWrapper()
-cnn_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters)
+# cnn_wrapper.demo_one_batch(train_data=train_data, best_parameters=parameters)
+# cnn_wrapper.find_max_img_sizes(data=train_data, parameters=parameters)
+# cnn_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters)
 
 best_cnn = cnn_wrapper.fit(train_data=train_data, best_parameters=parameters)["model"]
 print("PERFORMANCE ON TEST")
