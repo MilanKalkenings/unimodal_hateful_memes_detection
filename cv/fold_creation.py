@@ -53,30 +53,32 @@ class ImageFoldCreator:
             last_border = border
         return fold_indices
 
-    def create_regular(self, prefix="img"):
+    def create_regular(self, prefix="img", num_folds=6):
         """
         Creates folds without undersampling.
 
         :param str prefix: a concatenation of the prefix and the fold number is used as the name of the .csv file
         in which the respective folds will be stored
+        :param int num_folds: number of created folds.
         """
-        fold_ids = self.get_fold_ids(num_indices=len(self.data), num_folds=6)
+        fold_ids = self.get_fold_ids(num_indices=len(self.data), num_folds=num_folds)
         for i, fold in enumerate(fold_ids):
             fold = pd.DataFrame(self.data.iloc[fold, :])
             fold.to_csv(self.destination_path + prefix + str(i) + ".csv", index=False)
 
-    def create_undersampled(self, prefix="undersampled_img"):
+    def create_undersampled(self, prefix="undersampled_img", num_folds=6):
         """
         Creates an undersampled dataset having the same amount of members per category in the target variable.
 
         :param str prefix: a concatenation of the prefix and the fold number is used as the name of the .csv file
         in which the respective folds will be stored
+        :param int num_folds: number of created folds.
         """
         goal = self.data["label"].value_counts().min()  # undersampling goal: equal amount of observations per class
         data_pos = self.data.loc[self.data["label"] == 1, :]
         data_neg = self.data.loc[self.data["label"] == 0, :]
         data = pd.concat([data_pos.head(goal), data_neg.head(goal)], axis=0, ignore_index=True)
-        fold_ids = self.get_fold_ids(num_indices=len(data), num_folds=6)
+        fold_ids = self.get_fold_ids(num_indices=len(data), num_folds=num_folds)
         for i, fold in enumerate(fold_ids):
             fold = pd.DataFrame(data.iloc[fold, :])
             fold.to_csv(self.destination_path + prefix + str(i) + ".csv", index=False)
@@ -86,6 +88,5 @@ image_fold_creator = ImageFoldCreator(train_path="../../data/hateful_memes_data/
                                       val_path="../../data/hateful_memes_data/dev.jsonl",
                                       destination_path="../../data/folds_cv/")
 
-# image_fold_creator.create_custom()
-image_fold_creator.create_exact_matching()
+image_fold_creator.create_regular()
 image_fold_creator.create_undersampled()

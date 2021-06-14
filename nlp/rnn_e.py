@@ -357,14 +357,14 @@ class RNNEWrapper:
         return {"model": model, "vocab": vocab}
 
 
-folds = tools.read_folds(prefix="stopped_text",
+folds = tools.read_folds(prefix="undersampled_stopped_text",
                          read_path="../../data/folds_nlp",
                          test_fold_id=0)
 train_folds = folds["available_for_train"]
 test_fold = folds["test"]
 
-parameters = {"n_epochs": 3,
-              "lr": 0.001,
+parameters = {"n_epochs": 10,
+              "lr": 0.0001,
               "max_seq_len": 16,
               "n_layers": 3,
               "feats_per_time_step": 128,

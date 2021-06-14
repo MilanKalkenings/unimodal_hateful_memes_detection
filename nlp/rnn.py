@@ -401,10 +401,10 @@ folds = tools.read_folds(prefix="undersampled_stopped_text",
 train_folds = folds["available_for_train"]
 test_fold = folds["test"]
 
-parameters = {"n_epochs": 5,
+parameters = {"n_epochs": 20,
               "lr": 0.0001,
               "max_seq_len": 32,
-              "n_layers": 3,
+              "n_layers": 16,
               "feats_per_time_step": 1,
               "hidden_size": 128,
               "n_classes": 2,

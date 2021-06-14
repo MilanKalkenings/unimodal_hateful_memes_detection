@@ -151,11 +151,12 @@ class CNNWrapper:
         :param dict best_parameters: a dictionary containing the best parameters
         (found using evaluate hyperparameters of this class). The dictionary has at least the keys "n_epochs", "lr",
         "linear_size", "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe",
-        and the respective values
+        "accumulation", and the respective values
         :param int verbose: defines the amount of prints made during the call. The higher, the more prints
         :return: The trained model
         """
         # extract the parameters
+        accumulation = best_parameters["accumulation"]
         linear_size = best_parameters["linear_size"]
         conv_ch1 = best_parameters["conv_ch1"]
         conv_ch2 = best_parameters["conv_ch2"]
@@ -181,14 +182,17 @@ class CNNWrapper:
         for epoch in range(n_epochs):
             print("=== Epoch", epoch + 1, "/", n_epochs, "===")
             model.train()
-            for batch in train_loader:
+            for i, batch in enumerate(train_loader):
                 x_batch, y_batch = batch
                 # model(x) = model.__call__(x) performs forward (+ more)
                 probas = torch.flatten(model(x=x_batch))
-                model.zero_grad()  # reset gradients from last step
                 batch_loss = loss_func(probas, y_batch)  # calculate loss
+                batch_loss /= accumulation
                 batch_loss.backward()  # calculate gradients
-                optimizer.step()  # update parameters
+
+                if (i + 1) % accumulation == 0:
+                    optimizer.step()  # update parameters
+                    optimizer.zero_grad()  # clear the gradient
 
             if verbose > 0:
                 print("Metrics on training data after epoch", epoch + 1, ":")
@@ -206,7 +210,7 @@ class CNNWrapper:
         :param dict best_parameters: a dictionary containing the best parameters
         (found using evaluate hyperparameters of this class). The dictionary has at least the keys "n_epochs", "lr",
         "linear_size", "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe",
-        and the respective values
+        "accumulation", and the respective values
         """
         # extract the parameters
         linear_size = best_parameters["linear_size"]
@@ -217,6 +221,7 @@ class CNNWrapper:
         n_epochs = best_parameters["n_epochs"]
         lr = best_parameters["lr"]
         device = best_parameters["device"]
+        accumulation = best_parameters["accumulation"]
 
         train_loader = self.preprocess(data=train_data, parameters=best_parameters)["loader"]
         batch = next(iter(train_loader))
@@ -238,10 +243,13 @@ class CNNWrapper:
             x_batch, y_batch = batch
             # model(x) = model.__call__(x) performs forward (+ more)
             probas = torch.flatten(model(x=x_batch))
-            model.zero_grad()  # reset gradients from last step
             batch_loss = loss_func(probas, y_batch)  # calculate loss
+            batch_loss /= accumulation
             batch_loss.backward()  # calculate gradients
-            optimizer.step()  # update parameters
+
+            if (epoch + 1) % accumulation == 0:
+                optimizer.step()  # update parameters
+                optimizer.zero_grad()  # clear the gradient
 
             preds_batch_np = np.round(probas.cpu().detach().numpy())
             y_batch_np = y_batch.cpu().detach().numpy()
@@ -272,11 +280,9 @@ class CNNWrapper:
                 max_width = width
             if height > max_height:
                 max_height = height
-        print(max_height)
-        print(max_width)
         return {"height": max_height, "width": max_width}
 
-    def evaluate_hyperparameters(self, folds, parameters, verbose=2):
+    def evaluate_hyperparameters(self, folds, parameters):
         """
         Evaluates the given parameters on multiple folds using k-fold cross validation.
 
@@ -284,15 +290,12 @@ class CNNWrapper:
         during the training time.
         :param dict parameters: a dictionary containing one combination of  parameters.
          The dictionary has at least the keys "n_epochs", "lr", "linear_size",
-        "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe",
-        and the respective values
-        :param int verbose: defines the amount of prints made during the call. The higher, the more prints
+        "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe", "freeze_epochs",
+        "unfreeze_epochs", and the respective values.
         :return: a dictionary having the keys "acc_scores", "f1_scores" and "parameters", having the accuracy score
-        for each fold, the f1 score of each fold and the used parameters as values
+        and the f1 score after each epoch averaged over all folds, and the used parameters as values.
         """
-        val_acc_scores = []
-        val_f1_scores = []
-
+        print("\nEvaluating Hyperparameters:\n", parameters)
         n_epochs = parameters["n_epochs"]
         lr = parameters["lr"]
         linear_size = parameters["linear_size"]
@@ -301,7 +304,10 @@ class CNNWrapper:
         kernel_size = parameters["kernel_size"]
         pooling_size = parameters["pooling_size"]
         device = parameters["device"]
+        accumulation = parameters["accumulation"]
 
+        acc_scores = np.zeros(n_epochs)
+        f1_scores = np.zeros(n_epochs)
         loss_func = nn.BCELoss()
         for fold_id in range(len(folds)):
             print("=== Fold", fold_id + 1, "/", len(folds), "===")
@@ -310,7 +316,6 @@ class CNNWrapper:
             val = sets["val"]
             preprocessed = self.preprocess(data=train, parameters=parameters)
             train_loader = preprocessed["loader"]
-
             linear_input_size = self.find_linear_input_size(data=folds[0], parameters=parameters)
             model = CNNClassifier(linear_input_size=linear_input_size,
                                   linear_size=linear_size,
@@ -318,32 +323,34 @@ class CNNWrapper:
                                   conv_ch2=conv_ch2,
                                   kernel_size=kernel_size,
                                   pooling_size=pooling_size).to(device)  # isolated model per fold
-
             optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)  # depends on model
 
-            for epoch in range(n_epochs):
+            for epoch in range(1, n_epochs + 1):
                 model.train()
-                print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+                print("=== Epoch", epoch, "/", n_epochs, "===")
                 for i, batch in enumerate(train_loader):
                     x_batch, y_batch = batch
                     probas = torch.flatten(model(x=x_batch))  # forward
-                    model.zero_grad()
                     batch_loss = loss_func(probas, y_batch)  # calculate loss
+                    batch_loss /= accumulation
                     batch_loss.backward()  # calculate gradients
-                    optimizer.step()  # update parameters
-                    if verbose > 1:
-                        if i % int(len(train_loader) / 10) == 0:
-                            print("iteration", i + 1, "/", len(train_loader), "; loss:", batch_loss.item())
-                if verbose > 0:
-                    print("Metrics on training data after epoch", epoch + 1, ":")
-                    self.predict(model=model, data=val, parameters=parameters)
 
-            # validate performance of this fold-split after all epochs are performed:
-            print("Metrics using fold", fold_id + 1, "as validation fold:")
-            metrics = self.predict(model=model, data=val, parameters=parameters)
-            val_acc_scores.append(metrics["acc"])
-            val_f1_scores.append(metrics["f1"])
-        return {"acc_scores": val_acc_scores, "f1_scores": val_f1_scores, "parameters": parameters}
+                    if (i + 1) % accumulation == 0:
+                        optimizer.step()  # update parameters
+                        optimizer.zero_grad()  # clear the gradient
+
+                print("Metrics on training data after epoch", epoch, ":")
+                self.predict(model=model, data=train, parameters=parameters)
+                print("Metrics on validation data after epoch", epoch, ":")
+                metrics = self.predict(model=model, data=val, parameters=parameters)
+                acc_scores[epoch - 1] += metrics["acc"]
+                f1_scores[epoch - 1] += metrics["f1"]
+                print("\n")
+
+        for i in range(n_epochs):
+            acc_scores[i] /= len(folds)
+            f1_scores[i] /= len(folds)
+        return {"acc_scores": acc_scores, "f1_scores": f1_scores, "parameters": parameters}
 
     def predict(self, model, data, parameters):
         """
@@ -383,6 +390,41 @@ class CNNWrapper:
         return {"acc": acc, "f1": f1}
 
 
+# read the datasets
+folds = tools.read_folds(prefix="undersampled_img",
+                         read_path="../../data/folds_cv",
+                         test_fold_id=0)
+train_folds = folds["train"]
+test_fold = folds["test"]
+train_data = train_folds[0]
+for i in range(1, len(train_folds) - 1):
+    pd.concat([train_data, train_folds[i]], axis=0)
+
+# define the parameters
+transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True),
+                                     transforms.ToTensor()])
+parameters = {"transform_pipe": transform_pipe,
+              "n_epochs": 3,
+              "lr": 0.0001,
+              "batch_size": 8,
+              "device": device,
+              "conv_ch1": 8,
+              "conv_ch2": 4,
+              "linear_size": 16,
+              "kernel_size": 3,
+              "pooling_size": 2,
+              "accumulation": 4}
+
+# use the model
+cnn_wrapper = CNNWrapper()
+cnn_wrapper.demo_one_batch(train_data=train_data, best_parameters=parameters)
+cnn_wrapper.find_max_img_sizes(data=train_data, parameters=parameters)
+print(cnn_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
+best_cnn = cnn_wrapper.fit(train_data=train_data, best_parameters=parameters)["model"]
+print("PERFORMANCE ON TEST")
+cnn_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters)
+
+
 '''
 # 67 test accuracy and confusion based metrics above 0.65 on undersampled_img
 transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True),
@@ -399,36 +441,6 @@ parameters = {"transform_pipe": transform_pipe,
               "pooling_size": 2}
 '''
 
-# read the datasets
-folds = tools.read_folds(prefix="undersampled_img",
-                         read_path="../../data/folds_cv",
-                         test_fold_id=0)
-train_folds = folds["train"]
-test_fold = folds["test"]
-train_data = train_folds[0]
-for i in range(1, len(train_folds) - 1):
-    pd.concat([train_data, train_folds[i]], axis=0)
 
-# define the parameters
-transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True),
-                                     transforms.ToTensor()])
-parameters = {"transform_pipe": transform_pipe,
-              "n_epochs": 20,
-              "lr": 0.0001,
-              "batch_size": 128,
-              "device": device,
-              "conv_ch1": 4,
-              "conv_ch2": 2,
-              "linear_size": 16,
-              "kernel_size": 3,
-              "pooling_size": 2}
 
-# use the model
-cnn_wrapper = CNNWrapper()
-# cnn_wrapper.demo_one_batch(train_data=train_data, best_parameters=parameters)
-# cnn_wrapper.find_max_img_sizes(data=train_data, parameters=parameters)
-# cnn_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters)
 
-best_cnn = cnn_wrapper.fit(train_data=train_data, best_parameters=parameters)["model"]
-print("PERFORMANCE ON TEST")
-cnn_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters)

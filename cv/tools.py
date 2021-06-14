@@ -7,7 +7,6 @@ from sklearn.metrics import precision_score
 from sklearn.metrics import recall_score
 from torch.utils.data import Dataset
 from PIL import Image
-from torchvision import transforms
 
 
 def select_device():
@@ -35,7 +34,8 @@ def read_folds(prefix, read_path, num_folds=6, test_fold_id=0):
     :param int num_folds: number of folds to read
     :param int test_fold_id: the index of the fold containing test data
     :return: dictionary containing all read folds. Folds are represented as pd.DataFrames.
-    Folds used for training and train-validation are stored in "train", testing data is stored in "test".
+    Folds are stored in "train", or "test" sets. Each of the former strings are keys of the
+    returned dictionary.
     """
     train_folds = []
     test_fold = None
@@ -44,7 +44,7 @@ def read_folds(prefix, read_path, num_folds=6, test_fold_id=0):
             test_fold = pd.read_csv(read_path + "/" + prefix + str(i) + ".csv")
         else:
             train_folds.append(pd.read_csv(read_path + "/" + prefix + str(i) + ".csv"))
-    return {"available_for_train": train_folds, "test": test_fold}
+    return {"train": train_folds, "test": test_fold}
 
 
 def evaluate(y_true, y_probas):
@@ -67,8 +67,7 @@ def evaluate(y_true, y_probas):
 
 def train_val_split(data_folds, val_fold_id):
     """
-    Given all folds, concatenates all training folds.
-    Returns training, validation and testing data.
+    Concatenates a number of training folds and provides a single validation fold.
 
     :param list data_folds: list of data folds, data folds ara pandas.DataFrames with columns "text" and "label"
     :param int val_fold_id: index of the validation fold in data_folds
