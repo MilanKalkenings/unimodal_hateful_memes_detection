@@ -87,7 +87,7 @@ class RNNWrapper:
     """
 
     @staticmethod
-    def preprocess(data, max_seq_len, batch_size, vocab=None, x_name="text", y_name="label", device="cuda"):
+    def preprocess(data, parameters, vocab=None):
         """
         Preprocesses the data of a fold and returns the DataLoaders for the wrapped neural network.
 
@@ -95,16 +95,18 @@ class RNNWrapper:
         sequences and another column <y_name> containing the class labels of the sequence
         :param int max_seq_len: maximum length of a sequence. Shorter sequences will be zero-padded to this size,
         longer sequences will be truncated to this size
-        :param int batch_size: number of observations handled in each batch
         :param pd.Series vocab: the vocabulary handled for the preprocessing, if None, a new vocabulary for the whole
         textual information in data is created (create new one on train, use existing one for test/val)
-        :param str x_name: name of the column containing the text-sequences
-        :param str y_name: name of the column containing the class labels
-        :param str device: name of the device (usually "cuda" or "cpu")
         :return: a dictionary having the key "loader" and the constructed DataLoader as value. (dictionary to match the
         pattern of the project); If vocab=None, the key "vocab" is added to the dictionary. The value of that key
         is the extracted vocabulary of the whole data
         """
+        max_seq_len = parameters["max_seq_len"]
+        batch_size = parameters["batch_size"]
+        x_name = parameters["x_name"]
+        y_name = parameters["y_name"]
+        device = parameters["device"]
+
         text_col = data[x_name]
         target_col = data[y_name]
         tweet_tokenizer = TweetTokenizer()
@@ -194,141 +196,6 @@ class RNNWrapper:
             loader = DataLoader(dataset=dataset, batch_size=batch_size, sampler=sampler)
             return {"loader": loader}  # to preserve the pattern
 
-    def evaluate_hyperparameters(self, folds, parameters, verbose=0):
-        """
-        Evaluates the given parameters on multiple folds using k-fold cross validation.
-
-        :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
-        during the training time.
-        :param dict parameters: a dictionary containing one combination of  parameters.
-         The dictionary has at least the keys "n_epochs", "lr", "max_seq_len",
-        "n_layers", "feats_per_time_step", "hidden_size", "n_classes", "batch_size", "x_name", "y_name", "device",
-        and the respective values
-        :param int verbose: defines the amount of prints made during the call. The higher, the more prints
-        :return: a dictionary having the keys "acc_scores", "f1_scores" and "parameters", having the accuracy score
-        for each fold, the f1 score of each fold and the used parameters as values
-        """
-        val_acc_scores = []
-        val_f1_scores = []
-
-        n_epochs = parameters["n_epochs"]
-        lr = parameters["lr"]
-        max_seq_len = parameters["max_seq_len"]
-        n_layers = parameters["n_layers"]
-        feats_per_time_step = parameters["feats_per_time_step"]
-        hidden_size = parameters["hidden_size"]
-        n_classes = parameters["n_classes"]
-        batch_size = parameters["batch_size"]
-        x_name = parameters["x_name"]
-        y_name = parameters["y_name"]
-        device = parameters["device"]
-
-        loss_func = nn.CrossEntropyLoss()
-        for fold_id in range(len(folds)):
-            print("=== Fold", fold_id + 1, "/", len(folds), "===")
-            sets = tools.train_val_split(data_folds=folds, val_fold_id=fold_id)
-            train = sets["train"]
-            val = sets["val"]
-            preprocessed = self.preprocess(data=train,
-                                           max_seq_len=max_seq_len,
-                                           batch_size=batch_size,
-                                           x_name=x_name,
-                                           y_name=y_name,
-                                           device=device)
-
-            train_loader = preprocessed["loader"]
-            vocab = preprocessed["vocab"]
-
-            model = RNNClassifier(feats_per_time_step=feats_per_time_step,
-                                  hidden_size=hidden_size,
-                                  n_layers=n_layers,
-                                  n_classes=n_classes).to(device)  # create one model per fold split (isolated training)
-
-            optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)  # depends on model
-
-            for epoch in range(n_epochs):
-                print("=== Epoch", epoch + 1, "/", n_epochs, "===")
-                model.train()
-                for batch in train_loader:
-                    x_batch, y_batch = batch
-                    x_batch = x_batch.reshape(-1, max_seq_len, feats_per_time_step)
-                    probas = model(x=x_batch)  # forward
-                    model.zero_grad()
-                    batch_loss = loss_func(probas, y_batch)  # calculate loss
-                    batch_loss.backward()  # calculate gradients
-                    optimizer.step()  # update parameters
-                if verbose > 0:
-                    print("Metrics on training data after epoch", epoch + 1, ":")
-                    self.predict(model=model, data=val, parameters=parameters, vocab=vocab, synth_loader=None)
-
-            # validate performance of this fold-split after all epochs are performed:
-            print("Metrics using fold", fold_id + 1, "as validation fold:")
-            metrics = self.predict(model=model, data=val, parameters=parameters, vocab=vocab, synth_loader=None)
-            val_acc_scores.append(metrics["acc"])
-            val_f1_scores.append(metrics["f1"])
-        return {"acc_scores": val_acc_scores, "f1_scores": val_f1_scores, "parameters": parameters}
-
-    def predict(self, model, data, parameters, vocab, synth_loader):
-        """
-        Predicts the labels of a dataset and evaluates the results against the ground truth.
-
-        :param RNNClassifier model: a trained RNNClassifier
-        :param pd.DataFrame data: a dataset on which the prediction has to be performed
-        :param dict parameters: a dictionary having at least the keys "max_seq_len", "batch_size", "x_name", "y_name",
-        "device", and the respective values.
-        :param pd.Series vocab: a trained vocab mapping that maps tokens to integers
-        :param synth_loader: a DataLoader for synthetic data, used for debugging only
-        :return: a dictionary containing the f1_score and the accuracy_score of the models predictions on the data
-        """
-
-        max_seq_len = parameters["max_seq_len"]
-        feats_per_time_step = parameters["feats_per_time_step"]
-        batch_size = parameters["batch_size"]
-        x_name = parameters["x_name"]
-        y_name = parameters["y_name"]
-        device = parameters["device"]
-
-        model.eval()
-        acc = 0
-        f1 = 0
-        precision = 0
-        recall = 0
-
-        if synth_loader is None:
-            preprocessed = self.preprocess(data=data,
-                                           max_seq_len=max_seq_len,
-                                           batch_size=batch_size,
-                                           x_name=x_name,
-                                           y_name=y_name,
-                                           device=device,
-                                           vocab=vocab)
-
-            loader = preprocessed["loader"]
-        else:
-            loader = synth_loader
-
-        for batch in loader:
-            x_batch, y_batch = batch
-            x_batch = x_batch.reshape(-1, max_seq_len, feats_per_time_step)
-            with torch.no_grad():
-                probas = model(x=x_batch)
-            _, preds = torch.max(probas.data, 1)
-            metrics = tools.evaluate(y_true=y_batch, y_probas=preds)
-            acc += metrics["acc"]
-            f1 += metrics["f1"]
-            precision += metrics["precision"]
-            recall += metrics["recall"]
-        acc /= len(loader)
-        f1 /= len(loader)
-        precision /= len(loader)
-        recall /= len(loader)
-
-        print("Accuracy:", acc)
-        print("F1-Score:", f1)
-        print("Precision:", precision)
-        print("Recall:", recall)
-        return {"acc": acc, "f1": f1}
-
     def fit(self, train_data, best_parameters, verbose=0, synth_loader=None):
         """
         Trains an RNNClassifier on train_data using a set of parameters.
@@ -349,19 +216,10 @@ class RNNWrapper:
         feats_per_time_step = best_parameters["feats_per_time_step"]
         hidden_size = best_parameters["hidden_size"]
         n_classes = best_parameters["n_classes"]
-        batch_size = best_parameters["batch_size"]
-        x_name = best_parameters["x_name"]
-        y_name = best_parameters["y_name"]
         device = best_parameters["device"]
 
         if synth_loader is None:
-            preprocessed = self.preprocess(data=train_data,
-                                           max_seq_len=max_seq_len,
-                                           batch_size=batch_size,
-                                           x_name=x_name,
-                                           y_name=y_name,
-                                           device=device)
-
+            preprocessed = self.preprocess(data=train_data, parameters=parameters)
             train_loader = preprocessed["loader"]
             vocab = preprocessed["vocab"]
         else:
@@ -394,13 +252,134 @@ class RNNWrapper:
                              synth_loader=synth_loader)
         return {"model": model, "vocab": vocab}
 
+    def evaluate_hyperparameters(self, folds, parameters):
+        """
+        Evaluates the given parameters on multiple folds using k-fold cross validation.
 
+        :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
+        during the training time.
+        :param dict parameters: a dictionary containing one combination of  parameters.
+         The dictionary has at least the keys "n_epochs", "lr", "max_seq_len",
+        "n_layers", "feats_per_time_step", "hidden_size", "n_classes", "batch_size", "x_name", "y_name", "device",
+        and the respective values
+        :return: a dictionary having the keys "acc_scores", "f1_scores" and "parameters", having the accuracy score
+        for each fold, the f1 score of each fold and the used parameters as values
+        """
+        n_epochs = parameters["n_epochs"]
+        lr = parameters["lr"]
+        max_seq_len = parameters["max_seq_len"]
+        n_layers = parameters["n_layers"]
+        feats_per_time_step = parameters["feats_per_time_step"]
+        hidden_size = parameters["hidden_size"]
+        n_classes = parameters["n_classes"]
+        device = parameters["device"]
+
+        acc_scores = np.zeros(n_epochs)
+        f1_scores = np.zeros(n_epochs)
+        loss_func = nn.CrossEntropyLoss()
+        for fold_id in range(len(folds)):
+            print("=== Fold", fold_id + 1, "/", len(folds), "===")
+            sets = tools.train_val_split(data_folds=folds, val_fold_id=fold_id)
+            train = sets["train"]
+            val = sets["val"]
+            preprocessed = self.preprocess(data=train, parameters=parameters)
+
+            train_loader = preprocessed["loader"]
+            vocab = preprocessed["vocab"]
+
+            model = RNNClassifier(feats_per_time_step=feats_per_time_step,
+                                  hidden_size=hidden_size,
+                                  n_layers=n_layers,
+                                  n_classes=n_classes).to(device)  # create one model per fold split (isolated training)
+
+            optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)  # depends on model
+
+            for epoch in range(n_epochs):
+                print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+                model.train()
+                for batch in train_loader:
+                    x_batch, y_batch = batch
+                    x_batch = x_batch.reshape(-1, max_seq_len, feats_per_time_step)
+                    probas = model(x=x_batch)  # forward
+                    model.zero_grad()
+                    batch_loss = loss_func(probas, y_batch)  # calculate loss
+                    batch_loss.backward()  # calculate gradients
+                    optimizer.step()  # update parameters
+
+                print("Metrics on training data after epoch", epoch, ":")
+                self.predict(model=model, data=train, parameters=parameters, vocab=vocab, synth_loader=None)
+                print("Metrics on validation data after epoch", epoch, ":")
+                metrics = self.predict(model=model, data=val, parameters=parameters, vocab=vocab, synth_loader=None)
+                acc_scores[epoch - 1] += metrics["acc"]
+                f1_scores[epoch - 1] += metrics["f1"]
+                print("\n")
+
+        for i in range(n_epochs):
+            acc_scores[i] /= len(folds)
+            f1_scores[i] /= len(folds)
+        return {"acc_scores": acc_scores, "f1_scores": f1_scores, "parameters": parameters}
+
+    def predict(self, model, data, parameters, vocab, synth_loader):
+        """
+        Predicts the labels of a dataset and evaluates the results against the ground truth.
+
+        :param RNNClassifier model: a trained RNNClassifier
+        :param pd.DataFrame data: a dataset on which the prediction has to be performed
+        :param dict parameters: a dictionary having at least the keys "max_seq_len", "batch_size", "x_name", "y_name",
+        "device", and the respective values.
+        :param pd.Series vocab: a trained vocab mapping that maps tokens to integers
+        :param synth_loader: a DataLoader for synthetic data, used for debugging only
+        :return: a dictionary containing the f1_score and the accuracy_score of the models predictions on the data
+        """
+        max_seq_len = parameters["max_seq_len"]
+        feats_per_time_step = parameters["feats_per_time_step"]
+
+        model.eval()
+        acc = 0
+        f1 = 0
+        precision = 0
+        recall = 0
+        if synth_loader is None:
+            preprocessed = self.preprocess(data=data, parameters=parameters, vocab=vocab)
+
+            loader = preprocessed["loader"]
+        else:
+            loader = synth_loader
+
+        for batch in loader:
+            x_batch, y_batch = batch
+            x_batch = x_batch.reshape(-1, max_seq_len, feats_per_time_step)
+            with torch.no_grad():
+                probas = model(x=x_batch)
+            _, preds = torch.max(probas.data, 1)
+            metrics = tools.evaluate(y_true=y_batch, y_probas=preds)
+            acc += metrics["acc"]
+            f1 += metrics["f1"]
+            precision += metrics["precision"]
+            recall += metrics["recall"]
+        acc /= len(loader)
+        f1 /= len(loader)
+        precision /= len(loader)
+        recall /= len(loader)
+
+        print("Accuracy:", acc)
+        print("F1-Score:", f1)
+        print("Precision:", precision)
+        print("Recall:", recall)
+        return {"acc": acc, "f1": f1}
+
+
+# read the datasets
 folds = tools.read_folds(prefix="undersampled_stopped_text",
                          read_path="../../data/folds_nlp",
                          test_fold_id=0)
-train_folds = folds["available_for_train"]
+train_folds = folds["train"]
 test_fold = folds["test"]
+train_data = train_folds[0]
+for i in range(1, len(train_folds) - 1):
+    pd.concat([train_data, train_folds[i]], axis=0)
 
+# define the parameters
 parameters = {"n_epochs": 20,
               "lr": 0.0001,
               "max_seq_len": 32,
@@ -413,14 +392,13 @@ parameters = {"n_epochs": 20,
               "y_name": "label",
               "device": device}
 
+# use the model
 rnn_wrapper = RNNWrapper()
-train_data = train_folds[0]
-for i in range(1, len(train_folds) - 1):
-    pd.concat([train_data, train_folds[i]], axis=0)
+print(rnn_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
 fitted = rnn_wrapper.fit(train_data=train_data, best_parameters=parameters, verbose=1)
 vocab = fitted["vocab"]
 best_rnne_clf = fitted["model"]
-print("PERFORMANCE ON TEST:")
+print("\nPERFORMANCE ON TEST:")
 rnn_wrapper.predict(model=best_rnne_clf, data=test_fold, parameters=parameters, vocab=vocab, synth_loader=None)
 
 '''

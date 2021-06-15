@@ -41,7 +41,7 @@ def read_folds(prefix, read_path, num_folds=6, test_fold_id=0):
             test_fold = pd.read_csv(read_path + "/" + prefix + str(i) + ".csv")
         else:
             train_folds.append(pd.read_csv(read_path + "/" + prefix + str(i) + ".csv"))
-    return {"available_for_train": train_folds, "test": test_fold}
+    return {"train": train_folds, "test": test_fold}
 
 
 def evaluate(y_true, y_probas):

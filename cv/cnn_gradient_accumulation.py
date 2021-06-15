@@ -40,7 +40,6 @@ class CNNClassifier(nn.Module):
         if linear_input_size:  # evaluates as False if linear_input_size is None
             self.dropout = nn.Dropout(p=0.3)  # probability of an input being ignored
             self.linear1 = nn.Linear(in_features=linear_input_size, out_features=linear_size)
-            self.batch_norm = nn.BatchNorm1d(linear_size)
             self.linear2 = nn.Linear(in_features=linear_size, out_features=1)
             self.sigmoid = nn.Sigmoid()
 
@@ -87,7 +86,6 @@ class CNNClassifier(nn.Module):
             x = x.view(-1, self.linear_input_size)  # flatten out for the linear layers
             x = self.dropout(x)
             x = self.linear1(x)
-            x = self.batch_norm(x)
             x = self.linear2(x)
         return self.sigmoid(x)
 
@@ -421,7 +419,7 @@ cnn_wrapper.demo_one_batch(train_data=train_data, best_parameters=parameters)
 cnn_wrapper.find_max_img_sizes(data=train_data, parameters=parameters)
 print(cnn_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
 best_cnn = cnn_wrapper.fit(train_data=train_data, best_parameters=parameters)["model"]
-print("PERFORMANCE ON TEST")
+print("\nPERFORMANCE ON TEST")
 cnn_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters)
 
 

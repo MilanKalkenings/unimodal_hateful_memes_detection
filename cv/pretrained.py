@@ -150,7 +150,7 @@ class PretrainedWrapper:
                 optimizer.step()  # update parameters
 
             if verbose > 0:
-                print("Metrics on training data after epoch", epoch + 1, ":")
+                print("Metrics on training data after epoch", epoch, ":")
                 self.predict(model=model, data=train_data, parameters=best_parameters)
         return {"model": model}
 
@@ -230,7 +230,6 @@ class PretrainedWrapper:
         "device", and the respective values.
         :return: a dictionary containing the f1_score and the accuracy_score of the models predictions on the data
         """
-        # extract the parameters
         model.eval()
         acc = 0
         f1 = 0
@@ -285,5 +284,5 @@ parameters = {"transform_pipe": transform_pipe,
 pretrained_wrapper = PretrainedWrapper()
 print(pretrained_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
 best_cnn = pretrained_wrapper.fit(train_data=train_data, best_parameters=parameters)["model"]
-print("PERFORMANCE ON TEST")
+print("\nPERFORMANCE ON TEST")
 pretrained_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters)

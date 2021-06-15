@@ -83,21 +83,21 @@ class LSTMGloveWrapper:
         self.glove_map = glove_map
         self.glove_size = glove_size
 
-    def preprocess(self, data, max_seq_len, batch_size, x_name="text", y_name="label", device="cuda"):
+    def preprocess(self, data, parameters):
         """
         Preprocesses the data of a fold and returns the DataLoaders for the wrapped neural network.
 
         :param pd.DataFrame data: one fold of data to be processed. Contains a column <x_name> containing text
         sequences and another column <y_name> containing the class labels of the sequence
-        :param int max_seq_len: maximum length of a sequence. Shorter sequences will be zero-padded to this size,
-        longer sequences will be truncated to this size
-        :param int batch_size: number of observations handled in each batch
-        :param str x_name: name of the column containing the text-sequences
-        :param str y_name: name of the column containing the class labels
-        :param str device: name of the device (usually "cuda" or "cpu")
+        :param dict parameters: #TODO
         :return: a dictionary having the key "loader" and the constructed DataLoader as value. (dictionary to match the
         pattern of the project)
         """
+        max_seq_len = parameters["max_seq_len"]
+        batch_size = parameters["batch_size"]
+        x_name = parameters["x_name"]
+        y_name = parameters["y_name"]
+        device = parameters["device"]
         text_col = data[x_name]
         target_col = data[y_name]
         tweet_tokenizer = TweetTokenizer()
@@ -154,22 +154,13 @@ class LSTMGloveWrapper:
         """
         n_epochs = best_parameters["n_epochs"]
         lr = best_parameters["lr"]
-        max_seq_len = best_parameters["max_seq_len"]
         n_layers = best_parameters["n_layers"]
         feats_per_time_step = best_parameters["feats_per_time_step"]
         hidden_size = best_parameters["hidden_size"]
         n_classes = best_parameters["n_classes"]
-        batch_size = best_parameters["batch_size"]
-        x_name = best_parameters["x_name"]
-        y_name = best_parameters["y_name"]
         device = best_parameters["device"]
 
-        preprocessed = self.preprocess(data=train_data,
-                                       max_seq_len=max_seq_len,
-                                       batch_size=batch_size,
-                                       x_name=x_name,
-                                       y_name=y_name,
-                                       device=device)
+        preprocessed = self.preprocess(data=train_data, parameters=parameters)
 
         train_loader = preprocessed["loader"]
 
@@ -181,8 +172,8 @@ class LSTMGloveWrapper:
         loss_func = nn.CrossEntropyLoss()
 
         # train loop
-        for epoch in range(n_epochs):
-            print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+        for epoch in range(1, n_epochs + 1):
+            print("=== Epoch", epoch, "/", n_epochs, "===")
             model.train()
             for i, batch in enumerate(train_loader):
                 x_batch, y_batch = batch
@@ -191,12 +182,9 @@ class LSTMGloveWrapper:
                 batch_loss = loss_func(probas, y_batch)  # calculate loss
                 batch_loss.backward()  # calculate gradients
                 optimizer.step()  # update parameters
-                if verbose > 1:
-                    if i % int(len(train_loader) / 3) == 0:
-                        print("iteration", i + 1, "/", len(train_loader), "; loss:", batch_loss.item())
 
             if verbose > 0:
-                print("Metrics on training data after epoch", epoch + 1, ":")
+                print("Metrics on training data after epoch", epoch, ":")
                 self.predict(model=model, data=train_data, parameters=best_parameters)
         return {"model": model}
 
@@ -210,27 +198,12 @@ class LSTMGloveWrapper:
         "device", and the respective values.
         :return: a dictionary containing the f1_score and the accuracy_score of the models predictions on the data
         """
-        max_seq_len = parameters["max_seq_len"]
-        batch_size = parameters["batch_size"]
-        x_name = parameters["x_name"]
-        y_name = parameters["y_name"]
-        device = parameters["device"]
-
         model.eval()
         acc = 0
         f1 = 0
         precision = 0
         recall = 0
-
-        preprocessed = self.preprocess(data=data,
-                                       max_seq_len=max_seq_len,
-                                       batch_size=batch_size,
-                                       x_name=x_name,
-                                       y_name=y_name,
-                                       device=device)
-
-        loader = preprocessed["loader"]
-
+        loader = self.preprocess(data=data, parameters=parameters)["loader"]
         for batch in loader:
             x_batch, y_batch = batch
             with torch.no_grad():
@@ -252,7 +225,7 @@ class LSTMGloveWrapper:
         print("Recall:", recall)
         return {"acc": acc, "f1": f1}
 
-    def evaluate_hyperparameters(self, folds, parameters, verbose=2):
+    def evaluate_hyperparameters(self, folds, parameters):
         """
         Evaluates the given parameters on multiple folds using k-fold cross validation.
 
@@ -266,45 +239,31 @@ class LSTMGloveWrapper:
         :return: a dictionary having the keys "acc_scores", "f1_scores" and "parameters", having the accuracy score
         for each fold, the f1 score of each fold and the used parameters as values
         """
-        val_acc_scores = []
-        val_f1_scores = []
-
         n_epochs = parameters["n_epochs"]
         lr = parameters["lr"]
-        max_seq_len = parameters["max_seq_len"]
         n_layers = parameters["n_layers"]
         feats_per_time_step = parameters["feats_per_time_step"]
         hidden_size = parameters["hidden_size"]
         n_classes = parameters["n_classes"]
-        batch_size = parameters["batch_size"]
-        x_name = parameters["x_name"]
-        y_name = parameters["y_name"]
         device = parameters["device"]
 
+        acc_scores = np.zeros(n_epochs)
+        f1_scores = np.zeros(n_epochs)
         loss_func = nn.CrossEntropyLoss()
         for fold_id in range(len(folds)):
             print("=== Fold", fold_id + 1, "/", len(folds), "===")
             sets = tools.train_val_split(data_folds=folds, val_fold_id=fold_id)
             train = sets["train"]
             val = sets["val"]
-            preprocessed = self.preprocess(data=train,
-                                           max_seq_len=max_seq_len,
-                                           batch_size=batch_size,
-                                           x_name=x_name,
-                                           y_name=y_name,
-                                           device=device)
-
-            train_loader = preprocessed["loader"]
-
+            train_loader = self.preprocess(data=train, parameters=parameters)["loader"]
             model = LSTMGloveClassifier(feats_per_time_step=feats_per_time_step,
                                         hidden_size=hidden_size,
                                         n_layers=n_layers,
                                         n_classes=n_classes).to(device)  # isolated model per fold
-
             optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)
 
-            for epoch in range(n_epochs):
-                print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+            for epoch in range(1, n_epochs + 1):
+                print("=== Epoch", epoch, "/", n_epochs, "===")
                 model.train()
                 for i, batch in enumerate(train_loader):
                     x_batch, y_batch = batch
@@ -313,31 +272,33 @@ class LSTMGloveWrapper:
                     batch_loss = loss_func(probas, y_batch)  # calculate loss
                     batch_loss.backward()  # calculate gradients
                     optimizer.step()  # update parameters
-                    if verbose > 1:
-                        if i % int(len(train_loader) / 3) == 0:
-                            print("iteration", i + 1, "/", len(train_loader), "; loss:", batch_loss.item())
-                if verbose > 0:
-                    print("Metrics on training data after epoch", epoch + 1, ":")
-                    self.predict(model=model, data=val, parameters=parameters)
 
-            # validate performance of this fold-split after all epochs are performed:
-            print("Metrics using fold", fold_id + 1, "as validation fold:")
-            metrics = self.predict(model=model, data=val, parameters=parameters)
-            val_acc_scores.append(metrics["acc"])
-            val_f1_scores.append(metrics["f1"])
-        return {"acc_scores": val_acc_scores, "f1_scores": val_f1_scores, "parameters": parameters}
+                print("Metrics on training data after epoch", epoch, ":")
+                self.predict(model=model, data=train, parameters=parameters)
+                print("Metrics on validation data after epoch", epoch, ":")
+                metrics = self.predict(model=model, data=val, parameters=parameters)
+                acc_scores[epoch - 1] += metrics["acc"]
+                f1_scores[epoch - 1] += metrics["f1"]
+                print("\n")
+
+        for i in range(n_epochs):
+            acc_scores[i] /= len(folds)
+            f1_scores[i] /= len(folds)
+        return {"acc_scores": acc_scores, "f1_scores": f1_scores, "parameters": parameters}
 
 
+# read the data
 glove_map = read_glove_embedding(glove_path="../../data/pretrained_embeddings/glove.6B.50d.txt")
-
-folds = tools.read_folds(prefix="undersampled_stopped_text",
-                         read_path="../../data/folds_nlp",
-                         test_fold_id=0)
-train_folds = folds["available_for_train"]
+folds = tools.read_folds(prefix="undersampled_stopped_text", read_path="../../data/folds_nlp", test_fold_id=0)
+train_folds = folds["train"]
 test_fold = folds["test"]
+train_data = train_folds[0]
+for i in range(1, len(train_folds) - 1):
+    pd.concat([train_data, train_folds[i]], axis=0)
 
-parameters = {"n_epochs": 30,
-              "lr": 0.001,
+# define the parameters
+parameters = {"n_epochs": 5,
+              "lr": 0.01,
               "max_seq_len": 16,
               "n_layers": 3,
               "feats_per_time_step": 50,
@@ -348,11 +309,9 @@ parameters = {"n_epochs": 30,
               "y_name": "label",
               "device": device}
 
+# use the model
 lstmg_wrapper = LSTMGloveWrapper(glove_map=glove_map, glove_size=parameters["feats_per_time_step"])
-# print(lstmg_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
-train_data = train_folds[0]
-for i in range(1, len(train_folds) - 1):
-    pd.concat([train_data, train_folds[i]], axis=0)
+print(lstmg_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
 fitted = lstmg_wrapper.fit(train_data=train_data, best_parameters=parameters, verbose=1)
 best_lstmg_clf = fitted["model"]
 print("\nPERFORMANCE ON TEST:")
