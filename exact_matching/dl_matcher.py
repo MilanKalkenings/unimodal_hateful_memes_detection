@@ -5,19 +5,20 @@ import pandas as pd
 import torch
 from torchvision import transforms
 import torch.nn as nn
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers import AdamW
 from torchvision import models
 
 
-class PretrainedClassifier(nn.Module):
+class ExactClassifier(nn.Module):
     """
-    A binary classifier based on a pretrained component.
+    A binary classifier based on a pretrained component used for exact matching.
     A variety of pretrained models can be used.
     Some of which are (tested):
     resnet101,
     resnet18,
     resnext101_32x8d,
+    googlelenet,
     alexnet,
     mobilenet_v3_large
     """
@@ -30,14 +31,13 @@ class PretrainedClassifier(nn.Module):
         :param pretrained_component: a pretrained model for image classification. All pretrained models provided by
         PyTorch provide an output tensor of size 1_000.
         """
-        super(PretrainedClassifier, self).__init__()
+        super(ExactClassifier, self).__init__()
         self.pretrained_component = pretrained_component
         self.linear1 = nn.Linear(in_features=1_000, out_features=linear_size)
         self.linear2 = nn.Linear(in_features=linear_size, out_features=1)  # binary classification -> 1 out feature
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        print(x.size())
         x = self.pretrained_component(x)
         x = self.linear1(x)
         x = self.linear2(x)
@@ -59,8 +59,17 @@ class PretrainedClassifier(nn.Module):
         for param in self.pretrained_component.parameters():
             param.requires_grad = False
 
+    def pretrained_representation(self, x):
+        """
+        Performs the forward poss of the pretrained component only.
 
-class PretrainedWrapper:
+        :param tensor x: an imput
+        :return: The representation of the input created by the the pretrained component.
+        """
+        return self.pretrained_component(x)
+
+
+class ExactWrapper:
 
     @staticmethod
     def preprocess(data, parameters):
@@ -76,10 +85,33 @@ class PretrainedWrapper:
         transform_pipe = parameters["transform_pipe"]
         batch_size = parameters["batch_size"]
         device = parameters["device"]
+        sampler = parameters["sampler"]
         custom_dataset = tools.CustomDataset(data=data, transform_pipe=transform_pipe, device=device)
-        sampler = RandomSampler(data_source=custom_dataset)
+        sampler = sampler(data_source=custom_dataset)
         loader = DataLoader(dataset=custom_dataset, batch_size=batch_size, sampler=sampler)
         return {"loader": loader}
+
+    def find_linear_input_size(self, data, parameters):
+        """
+        Finds the number of parameters the first hidden layer that is attached to the convolutional
+        component of the model has to have given some data.
+
+        :param pd.DataFrame data: data on which the model has to be trained
+        :param dict parameters: a dictionary containing the best parameters
+        (found using evaluate hyperparameters of this class). The dictionary has at least the keys ,
+        "linear_size", "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe",
+        and the respective values
+        :return: The number of neurons that the first linear layer of the model needs to have
+        """
+        device = parameters["device"]
+        loader = self.preprocess(data=data, parameters=parameters)["loader"]
+
+        pretrained_component = parameters["pretrained_component"]
+        linear_size = parameters["linear_size"]
+        model = ExactClassifier(pretrained_component=pretrained_component, linear_size=linear_size).to(device)
+        example_batch = next(iter(loader))
+        example_x = example_batch[0]
+        return model.scalars_after_conv(x=example_x)
 
     def fit(self, train_data, best_parameters, verbose=2):
         """
@@ -96,14 +128,15 @@ class PretrainedWrapper:
         # extract the parameters
         n_epochs = best_parameters["n_epochs"]
         lr = best_parameters["lr"]
-        device = parameters["device"]
-        pretrained_component = parameters["pretrained_component"]
-        linear_size = parameters["linear_size"]
-        freeze_epochs = parameters["freeze_epochs"]
-        unfreeze_epochs = parameters["unfreeze_epochs"]
+        device = best_parameters["device"]
+        pretrained_component = best_parameters["pretrained_component"]
+        linear_size = best_parameters["linear_size"]
+        freeze_epochs = best_parameters["freeze_epochs"]
+        unfreeze_epochs = best_parameters["unfreeze_epochs"]
+        accumulation = best_parameters["accumulation"]
 
         train_loader = self.preprocess(data=train_data, parameters=best_parameters)["loader"]
-        model = PretrainedClassifier(pretrained_component=pretrained_component, linear_size=linear_size).to(device)
+        model = ExactClassifier(pretrained_component=pretrained_component, linear_size=linear_size).to(device)
         optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)
         loss_func = nn.BCELoss()
 
@@ -118,85 +151,22 @@ class PretrainedWrapper:
                 model.unfreeze_pretrained()
 
             model.train()
-            for batch in train_loader:
+            for i, batch in enumerate(train_loader):
                 x_batch, y_batch = batch
-                # model(x) = model.__call__(x) performs forward (+ more)
                 probas = torch.flatten(model(x=x_batch))
-                model.zero_grad()  # reset gradients from last step
                 batch_loss = loss_func(probas, y_batch)  # calculate loss
+                batch_loss /= accumulation
                 batch_loss.backward()  # calculate gradients
-                optimizer.step()  # update parameters
+
+                if ((i + 1) % accumulation == 0):
+                    optimizer.step()
+                    optimizer.zero_grad()
+
 
             if verbose > 0:
                 print("Metrics on training data after epoch", epoch, ":")
                 self.predict(model=model, data=train_data, parameters=best_parameters)
         return {"model": model}
-
-    def evaluate_hyperparameters(self, folds, parameters):
-        """
-        Evaluates the given parameters on multiple folds using k-fold cross validation.
-
-        :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
-        during the training time.
-        :param dict parameters: a dictionary containing one combination of  parameters.
-         The dictionary has at least the keys "n_epochs", "lr", "linear_size",
-        "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe", "freeze_epochs",
-        "unfreeze_epochs", and the respective values.
-        :return: a dictionary having the keys "acc_scores", "f1_scores" and "parameters", having the accuracy score
-        and the f1 score after each epoch averaged over all folds, and the used parameters as values.
-        """
-        device = parameters["device"]
-        n_epochs = parameters["n_epochs"]
-        lr = parameters["lr"]
-        pretrained_component = parameters["pretrained_component"]
-        linear_size = parameters["linear_size"]
-        freeze_epochs = parameters["freeze_epochs"]
-        unfreeze_epochs = parameters["unfreeze_epochs"]
-
-        acc_scores = np.zeros(n_epochs)
-        f1_scores = np.zeros(n_epochs)
-        loss_func = nn.BCELoss()
-        for fold_id in range(len(folds)):
-            print("=== Fold", fold_id + 1, "/", len(folds), "===")
-            sets = tools.train_val_split(data_folds=folds, val_fold_id=fold_id)
-            train = sets["train"]
-            val = sets["val"]
-            preprocessed = self.preprocess(data=train, parameters=parameters)
-            train_loader = preprocessed["loader"]
-            model = PretrainedClassifier(pretrained_component=pretrained_component, linear_size=linear_size).to(device)
-            optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)
-
-            for epoch in range(1, n_epochs + 1):
-                print("=== Epoch", epoch, "/", n_epochs, "===")
-
-                if epoch in freeze_epochs:
-                    print("Freeze")
-                    model.freeze_pretrained()
-                elif epoch in unfreeze_epochs:
-                    print("Unfreeze")
-                    model.unfreeze_pretrained()
-
-                model.train()
-                for i, batch in enumerate(train_loader):
-                    x_batch, y_batch = batch
-                    probas = torch.flatten(model(x=x_batch))  # forward
-                    model.zero_grad()
-                    batch_loss = loss_func(probas, y_batch)  # calculate loss
-                    batch_loss.backward()  # calculate gradients
-                    optimizer.step()  # update parameters
-
-                print("Metrics on training data after epoch", epoch, ":")
-                self.predict(model=model, data=train, parameters=parameters)
-                print("Metrics on validation data after epoch", epoch, ":")
-                metrics = self.predict(model=model, data=val, parameters=parameters)
-                acc_scores[epoch - 1] += metrics["acc"]
-                f1_scores[epoch - 1] += metrics["f1"]
-                print("\n")
-
-        for i in range(n_epochs):
-            acc_scores[i] /= len(folds)
-            f1_scores[i] /= len(folds)
-        return {"acc_scores": acc_scores, "f1_scores": f1_scores, "parameters": parameters}
 
     def predict(self, model, data, parameters):
         """
@@ -234,33 +204,67 @@ class PretrainedWrapper:
         print("Recall:", recall)
         return {"acc": acc, "f1": f1}
 
+    def pretrained_representations(self, data, model, parameters):
+        """
+        Creates the representations given by the pretrained component for the given data.
+
+        :param pd.DataFrame data: contains the data for which the representations have to be calculated.
+        :param dict parameters: #TODO
+        :return: A pd.Series containing the returned representations of the input.
+        """
+        parameters["batch_size"] = 1
+        parameters["sampler"] = SequentialSampler
+        loader = self.preprocess(data=data, parameters=parameters)["loader"]
+
+        representations = []
+        for x, y in loader:
+            representations.append(model.pretrained_representation(x))
+        return pd.Series(representations, name="representations")
+
+
+    def representation_similarity(self, representation1, representation2):
+        """
+        Calculates the
+
+        :param torch.Tensor representation1:
+        :param torch.Tensor representation2:
+        :return:
+        """
+        cos = nn.CosineSimilarity()
+        return cos(representation1.flatten(), representation2.flatten())
+
 
 # read the datasets
-folds = tools.read_folds(prefix="undersampled_img", read_path="../../data/folds_cv")
-train_folds = folds["train"]
-test_fold = folds["test"]
-train_data = train_folds[0]
-for i in range(1, len(train_folds) - 1):
-    pd.concat([train_data, train_folds[i]], axis=0)
+data = tools.read_data(detected_share=0.05)
+train_data = data["train"]
+val_data = data["val"]
+test_data = data["test"]
+detected = data["detected"]
+non_detected = data["non_detected"]
+print("Train Data Distribution of the target 'detected':")
+print(train_data["detected"].value_counts())
 
 # define the parameters
 device = tools.select_device()
 print("device:", device)
-transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True), transforms.ToTensor()])
+color_jitter = transforms.ColorJitter(brightness=[0, 2], hue=[-0.1, 0.1], contrast=[0, 2], saturation=[0, 2])
+random_crop = transforms.RandomCrop(size=[256, 256], pad_if_needed=True)
+transform_pipe = transforms.Compose([random_crop, color_jitter, transforms.ToTensor()])
 parameters = {"transform_pipe": transform_pipe,
               "pretrained_component": models.mobilenet_v3_large(pretrained=True),  # a pretrained model
-              "linear_size": 16,
-              "n_epochs": 2,
-              "lr": 0.0001,
-              "batch_size": 16,
+              "linear_size": 1024,
+              "n_epochs": 50,
+              "lr": 0.001,
+              "batch_size": 32,
               "device": device,
-              "freeze_epochs": [2],
-              "unfreeze_epochs": []}
+              "freeze_epochs": [],
+              "unfreeze_epochs": [],
+              "sampler": RandomSampler,
+              "accumulation": 1}
 
 
 # use the model
-pretrained_wrapper = PretrainedWrapper()
-print(pretrained_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
-best_cnn = pretrained_wrapper.fit(train_data=train_data, best_parameters=parameters)["model"]
+exact_wrapper = ExactWrapper()
+best_exact = exact_wrapper.fit(train_data=train_data, best_parameters=parameters)["model"]
 print("\nPERFORMANCE ON TEST")
-pretrained_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters)
+exact_wrapper.predict(model=best_exact, data=test_data, parameters=parameters)

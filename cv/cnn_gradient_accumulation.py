@@ -188,7 +188,7 @@ class CNNWrapper:
                 batch_loss /= accumulation
                 batch_loss.backward()  # calculate gradients
 
-                if (i + 1) % accumulation == 0:
+                if ((i + 1) % accumulation == 0):
                     optimizer.step()  # update parameters
                     optimizer.zero_grad()  # clear the gradient
 

@@ -73,10 +73,9 @@ class RNNClassifier(nn.Module):
         :param torch.Tensor x: the input/observation per batch
         :return: the prediction of the whole batch
         """
-        x = x.view(x.size(0), x.size(1) * x.size(2), 1)
         h0 = torch.zeros(self.n_layers, x.size(0), self.hidden_size).to(device)
         out, _ = self.rnn(x, h0)
-        out = out[:, -1, :]  # hidden state of the last time step
+        out = out[:, -1, :]
         out = self.linear(out)
         return out
 
@@ -382,8 +381,8 @@ for i in range(1, len(train_folds) - 1):
 # define the parameters
 parameters = {"n_epochs": 20,
               "lr": 0.0001,
-              "max_seq_len": 32,
-              "n_layers": 16,
+              "max_seq_len": 16,
+              "n_layers": 3,
               "feats_per_time_step": 1,
               "hidden_size": 128,
               "n_classes": 2,
@@ -394,7 +393,7 @@ parameters = {"n_epochs": 20,
 
 # use the model
 rnn_wrapper = RNNWrapper()
-print(rnn_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
+#print(rnn_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
 fitted = rnn_wrapper.fit(train_data=train_data, best_parameters=parameters, verbose=1)
 vocab = fitted["vocab"]
 best_rnne_clf = fitted["model"]

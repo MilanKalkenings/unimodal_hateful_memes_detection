@@ -61,12 +61,50 @@ class LSTMGloveClassifier(nn.Module):
         h0 = torch.zeros(self.n_layers, x.size(0), self.hidden_size).to(device)  # initial hidden state
         c0 = torch.zeros(self.n_layers, x.size(0), self.hidden_size).to(device)  # initial cell state
         out, _ = self.lstm(x, (h0, c0))
-        out = out[:, -1, :]  # hidden state of the last time step
+        out = out[:, -1, :]
         out = self.linear(out)
         return out
 
 
-class LSTMGloveWrapper:
+class BiLSTMGloveClassifier(nn.Module):
+    """
+    A bidirectional LSTM using pretrained word embeddings (glove)
+    """
+
+    def __init__(self, feats_per_time_step, hidden_size, n_layers, n_classes):
+        """
+        Constructor.
+
+        :param int feats_per_time_step: each time step, i.e. each word is represented by a number of features.
+        In case of word embeddings, the number of features per word is the embedding size of the word-vector.
+        :param int hidden_size: size of the hidden state
+        :param int n_layers: number of lstm layers
+        :param int n_classes: determines how many classes have to be handled. 2 in binary case.
+        """
+        super(LSTMGloveClassifier, self).__init__()
+        self.n_layers = n_layers
+        self.hidden_size = hidden_size
+        self.lstm = nn.LSTM(feats_per_time_step, hidden_size, n_layers, batch_first=True)
+        self.linear = nn.Linear(hidden_size*2, n_classes)
+
+    def forward(self, x):
+        """
+        performs the forward pass.
+
+        :param torch.Tensor x: the input/observation per batch
+        :return: the prediction of the whole batch
+        """
+        h0 = torch.zeros(self.n_layers*2, x.size(0), self.hidden_size).to(device)  # initial hidden state
+        c0 = torch.zeros(self.n_layers*2, x.size(0), self.hidden_size).to(device)  # initial cell state
+        out, _ = self.lstm(x, (h0, c0))
+        out_direction1 = out[:, -1, :self.hidden_size]  # regular
+        out_direction2 = out[:, 0, self.hidden_size:]  # reverse
+        out = torch.cat((out_direction1, out_direction2), 1)
+        out = self.linear(out)
+        return out
+
+
+class GloveWrapper:
     """
     A wrapper for LSTMGloveClassifier, that enables the core functionalities of the network.
     """
@@ -111,9 +149,9 @@ class LSTMGloveWrapper:
             """
             return tweet_tokenizer.tokenize(sequence)
 
-        def token_to_embedding(token_list):
+        def tokens_to_embedding(token_list):
             """
-            Embeds one token.
+            Embeds a list of tokens.
 
             :param list token_list: a list of strings. Each string is one token.
             :return: a numpy array of embedded tokens using the glove word embedding
@@ -132,7 +170,7 @@ class LSTMGloveWrapper:
             return np.stack(embedding)
 
         tokenized_texts = text_col.apply(func=tokenize_sequence)
-        embedded_texts = tokenized_texts.apply(func=token_to_embedding)
+        embedded_texts = tokenized_texts.apply(func=tokens_to_embedding)
         x = torch.tensor(embedded_texts, dtype=torch.float32).to(device)
         y = torch.tensor(target_col, dtype=torch.long).to(device)  # long for CrossEntropyLoss
         dataset = TensorDataset(x, y)
@@ -297,8 +335,8 @@ for i in range(1, len(train_folds) - 1):
     pd.concat([train_data, train_folds[i]], axis=0)
 
 # define the parameters
-parameters = {"n_epochs": 5,
-              "lr": 0.01,
+parameters = {"n_epochs": 10,
+              "lr": 0.001,
               "max_seq_len": 16,
               "n_layers": 3,
               "feats_per_time_step": 50,
@@ -310,8 +348,8 @@ parameters = {"n_epochs": 5,
               "device": device}
 
 # use the model
-lstmg_wrapper = LSTMGloveWrapper(glove_map=glove_map, glove_size=parameters["feats_per_time_step"])
-print(lstmg_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
+lstmg_wrapper = GloveWrapper(glove_map=glove_map, glove_size=parameters["feats_per_time_step"])
+#print(lstmg_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
 fitted = lstmg_wrapper.fit(train_data=train_data, best_parameters=parameters, verbose=1)
 best_lstmg_clf = fitted["model"]
 print("\nPERFORMANCE ON TEST:")

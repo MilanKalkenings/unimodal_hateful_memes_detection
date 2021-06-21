@@ -1,10 +1,10 @@
+import numpy as np
 import pandas as pd
 import torch
-import numpy as np
 from sklearn.metrics import accuracy_score
-from sklearn.metrics import recall_score
-from sklearn.metrics import precision_score
 from sklearn.metrics import f1_score
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
 
 
 def select_device():
@@ -83,3 +83,46 @@ def train_val_split(data_folds, val_fold_id):
                 train_data = pd.concat([train_data, data_folds[i]], ignore_index=True)
     val_data = data_folds[val_fold_id]
     return {"train": train_data, "val": val_data}
+
+
+def parameters_rnn_based(n_epochs, lr, max_seq_len, n_layers, feats_per_time_step, hidden_size, batch_size,
+                         device, n_classes=2, x_name="text", y_name="label"):
+    """
+    Creates a dictionary containing the necessary preprocessing, model and training parameters for all wrappers
+    based on recurrent architectures. (RNNWrapper, EmbeddingWrapper, GloveWrapper)
+
+    :param int n_epochs: maximum number of epochs
+    :param float lr: initial learning rate
+    :param int max_seq_len: sequence length to which all sequences have to be padded / truncated
+    :param int n_layers: number of RNN / GRU / LSTM layers
+    :param int feats_per_time_step: number of predictors per timestep. In case of word embeddings, this reflects the
+    embedding size per timestep / word
+    :param int hidden_size: size of the hidden state
+    :param int batch_size: number of observations per batch
+    :param str device: name of the utilized device (either cpu or cuda)
+    :param int n_classes: number of classes. 2 in a binary classification task
+    :param str x_name: name of the column containing the textual information
+    :param str y_name: name of the column containing the labels
+    :return: a dictionary containing all parameters having their names as keys.
+    """
+    return {"n_epochs": n_epochs, "lr": lr, "max_seq_len": max_seq_len, "n_layers": n_layers,
+            "feats_per_time_step": feats_per_time_step, "hidden_size": hidden_size, "batch_size": batch_size,
+            "device": device, "n_classes": n_classes, "x_name": x_name, "y_name": y_name}
+
+
+def parameters_bert_based(n_epochs, lr, max_seq_len, batch_size, device, n_classes=2, x_name="text", y_name="label"):
+    """
+    Creates a dictionary containing the necessary preprocessing, model and training parameters for the BertWrapper.
+
+    :param int n_epochs: maximum number of epochs
+    :param float lr: initial learning rate
+    :param int max_seq_len: sequence length to which all sequences have to be padded / truncated
+    :param int batch_size: number of observations per batch
+    :param str device: name of the utilized device (either cpu or cuda)
+    :param int n_classes: number of classes. 2 in a binary classification task
+    :param str x_name: name of the column containing the textual information
+    :param str y_name: name of the column containing the labels
+    :return: a dictionary containing all parameters having their names as keys.
+    """
+    return {"n_epochs": n_epochs, "lr": lr, "max_seq_len": max_seq_len, "batch_size": batch_size,
+            "device": device, "n_classes": n_classes, "x_name": x_name, "y_name": y_name}

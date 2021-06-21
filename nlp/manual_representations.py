@@ -410,8 +410,7 @@ class FeatureEngineer:
             pd.concat([x, y], axis=1).to_csv("../../data/manual_features/" + write_name + ".csv")
         return {"x": x, "y": y, "all_tokens": all_tokens}
 
-    def perform_classification(self, clf, model_name, X_train, y_train, X_test, y_test, pre_f_i=False, pre_count=None,
-                               post_f_i=False):
+    def perform_classification(self, clf, model_name, X_train, y_train, X_test, y_test, pre_f_i=False, post_f_i=False):
         """
         Performs classification on the extracted features.
 
@@ -423,7 +422,6 @@ class FeatureEngineer:
         :param pd.Series y_test: contains all targets of the test data
         :param bool pre_f_i: if True, calculates feature importances for models having .coef_ or .feature_importanmces_
         using sklearn.feature_selection.SelectFromModel (a simple form of forward selection)
-        :param int pre_count: Determines the feature pre selection.
         :param bool post_f_i: if True, PermutationImportance is performed. THis might be extremely time-consuming.
         """
         print("\n" + model_name + ":")
@@ -442,7 +440,7 @@ class FeatureEngineer:
                 return False
 
             print("Performing Preselection...")
-            feature_selector = SelectFromModel(estimator=lr, max_features=pre_count)
+            feature_selector = SelectFromModel(estimator=lr)
 
             # for more robustness: average over 10 non-disjoint random data subsets:
             all_ids = X_train.index
@@ -472,8 +470,9 @@ class FeatureEngineer:
                 print("\nPerforming Permutation Importance:")
                 importances = permutation_importance(estimator=clf, X=X_test, y=y_test).importances_mean
                 importances_mapped = pd.Series(data=importances, index=X_test.columns)
-                print("feature importances:\n", importances_mapped, "\n")
-                return {"importances": importances_mapped}
+                sorted_importances = importances_mapped.sort_values(ascending=False)
+                print("Sorted Feature Importances:\n", sorted_importances, "\n")
+                return {"importances": sorted_importances}
         else:
             clf.fit(X=X_train, y=y_train)
             preds = clf.predict(X=X_test)
@@ -485,8 +484,9 @@ class FeatureEngineer:
                 print("\nPerforming Permutation Importance:")
                 importances = permutation_importance(estimator=clf, X=X_test, y=y_test).importances_mean
                 importances_mapped = pd.Series(data=importances, index=X_test.columns)
-                print("Feature Importances:\n", importances_mapped, "\n")
-                return {"importances": importances_mapped}
+                sorted_importances = importances_mapped.sort_values(ascending=False)
+                print("Sorted Feature Importances:\n", sorted_importances, "\n")
+                return {"importances": sorted_importances}
 
 
 engineer = FeatureEngineer()
@@ -597,6 +597,6 @@ lr_importances = engineer.perform_classification(clf=lr,
                                                  y_test=y_test,
                                                  post_f_i=True,
                                                  pre_f_i=True)["importances"]
-lr_top_50_features = lr_importances.sort_values(ascending=False).head(50)
-lr_top_50_features.plot(kind="bar")
+lr_top_20_features = lr_importances.sort_values(ascending=False).head(20)
+lr_top_20_features.plot(kind="bar")
 plt.show()

@@ -41,8 +41,49 @@ class RNNEClassifier(nn.Module):
         """
         x = self.emb(x)
         h0 = torch.zeros(self.n_layers, x.size(0), self.hidden_size).to(device)
-        out, _ = self.rnn(x, h0)  # size: batch_size x seq_length x hidden_size
-        out = out[:, -1, :]  # hidden state of the last time step
+        out, _ = self.rnn(x, h0)  # size: batch_size x seq_len x hidden_size
+        out = out[:, -1, :]
+        out = self.linear(out)
+        return out
+
+
+class BiRNNEClassifier(nn.Module):
+    """
+    A bidirectional RNN-based classifier that trains word embeddings itself.
+    """
+
+    def __init__(self, feats_per_time_step, hidden_size, n_layers, n_classes, vocab_size):
+        """
+        Constructor.
+
+        :param int feats_per_time_step: each time step, i.e. each word is represented by a number of features.
+        In case of word embeddings, the number of features per word is the embedding size of the word-vector.
+        :param int hidden_size: size of the hidden state
+        :param int n_layers: number of lstm layers
+        :param int n_classes: determines how many classes have to be handled. 2 in binary case.
+        :param int vocab_size: number of tokens identified during training.
+        """
+        super(BiRNNEClassifier, self).__init__()
+        self.n_layers = n_layers
+        self.hidden_size = hidden_size
+        # vocab size + padding_token + out_of_vocab_token, i.e. vocab_size+2
+        self.emb = nn.Embedding(num_embeddings=vocab_size + 2, embedding_dim=feats_per_time_step, padding_idx=0)
+        self.rnn = nn.RNN(feats_per_time_step, hidden_size, n_layers, batch_first=True, bidirectional=True)
+        self.linear = nn.Linear(hidden_size*2, n_classes)
+
+    def forward(self, x):
+        """
+        performs the forward pass.
+
+        :param torch.Tensor x: the input/observation per batch
+        :return: the prediction of the whole batch
+        """
+        x = self.emb(x)
+        h0 = torch.zeros(self.n_layers*2, x.size(0), self.hidden_size).to(device)
+        out, _ = self.rnn(x, h0)  # size: batch_size x seq_len x hidden_size
+        out_direction1 = out[:, -1, :self.hidden_size]  # regular
+        out_direction2 = out[:, 0, self.hidden_size:]  # reverse
+        out = torch.cat((out_direction1, out_direction2), 1)
         out = self.linear(out)
         return out
 
@@ -81,7 +122,48 @@ class GRUEClassifier(nn.Module):
         x = self.emb(x)
         h0 = torch.zeros(self.n_layers, x.size(0), self.hidden_size).to(device)
         out, _ = self.gru(x, h0)
-        out = out[:, -1, :]  # hidden state of the last time step
+        out = out[:, -1, :]
+        out = self.linear(out)
+        return out
+
+
+class BiGRUEClassifier(nn.Module):
+    """
+    A GRU-based classifier that trains word embeddings itself.
+    """
+
+    def __init__(self, feats_per_time_step, hidden_size, n_layers, n_classes, vocab_size):
+        """
+        Constructor.
+
+        :param int feats_per_time_step: each time step, i.e. each word is represented by a number of features.
+        In case of word embeddings, the number of features per word is the embedding size of the word-vector.
+        :param int hidden_size: size of the hidden state
+        :param int n_layers: number of lstm layers
+        :param int n_classes: determines how many classes have to be handled. 2 in binary case.
+        :param int vocab_size: number of tokens identified during training.
+        """
+        super(BiGRUEClassifier, self).__init__()
+        self.n_layers = n_layers
+        self.hidden_size = hidden_size
+        # vocab size + padding_token + out_of_vocab_token, i.e. vocab_size+2
+        self.emb = nn.Embedding(num_embeddings=vocab_size + 2, embedding_dim=feats_per_time_step, padding_idx=0)
+        self.gru = nn.GRU(feats_per_time_step, hidden_size, n_layers, batch_first=True, bidirectional=True)
+        self.linear = nn.Linear(hidden_size*2, n_classes)
+
+    def forward(self, x):
+        """
+        performs the forward pass.
+
+        :param torch.Tensor x: the input/observation per batch
+        :return: the prediction of the whole batch
+        """
+        x = self.emb(x)
+        h0 = torch.zeros(self.n_layers*2, x.size(0), self.hidden_size).to(device)
+        out, _ = self.gru(x, h0)
+        out_direction1 = out[:, -1, :self.hidden_size]  # regular
+        out_direction2 = out[:, 0, self.hidden_size:]  # reverse
+        out = torch.cat((out_direction1, out_direction2), 1)
         out = self.linear(out)
         return out
 
@@ -121,8 +203,49 @@ class LSTMEClassifier(nn.Module):
         h0 = torch.zeros(self.n_layers, x.size(0), self.hidden_size).to(device)
         c0 = torch.zeros(self.n_layers, x.size(0), self.hidden_size).to(device)
         out, _ = self.lstm(x, (h0, c0))
-        # out.size() = (batch_size, seq_length, hidden_size)
-        out = out[:, -1, :]  # hidden state of the last time step
+        out = out[:, -1, :]
+        out = self.linear(out)
+        return out
+
+
+class BiLSTMEClassifier(nn.Module):
+    """
+    An LSTM-based classifier that trains word embeddings itself.
+    """
+
+    def __init__(self, feats_per_time_step, hidden_size, n_layers, n_classes, vocab_size):
+        """
+        Constructor.
+
+        :param int feats_per_time_step: each time step, i.e. each word is represented by a number of features.
+        In case of word embeddings, the number of features per word is the embedding size of the word-vector.
+        :param int hidden_size: size of the hidden state
+        :param int n_layers: number of lstm layers
+        :param int n_classes: determines how many classes have to be handled. 2 in binary case.
+        :param int vocab_size: number of tokens identified during training.
+        """
+        super(BiLSTMEClassifier, self).__init__()
+        self.n_layers = n_layers
+        self.hidden_size = hidden_size
+        # vocab size + padding_token + out_of_vocab_token, i.e. vocab_size+2
+        self.emb = nn.Embedding(num_embeddings=vocab_size + 2, embedding_dim=feats_per_time_step, padding_idx=0)
+        self.lstm = nn.LSTM(feats_per_time_step, hidden_size, n_layers, batch_first=True, bidirectional=True)
+        self.linear = nn.Linear(hidden_size*2, n_classes)
+
+    def forward(self, x):
+        """
+        performs the forward pass.
+
+        :param torch.Tensor x: the input/observation per batch
+        :return: the prediction of the whole batch
+        """
+        x = self.emb(x)
+        h0 = torch.zeros(self.n_layers*2, x.size(0), self.hidden_size).to(device)
+        c0 = torch.zeros(self.n_layers*2, x.size(0), self.hidden_size).to(device)
+        out, _ = self.lstm(x, (h0, c0))
+        out_direction1 = out[:, -1, :self.hidden_size]  # regular
+        out_direction2 = out[:, 0, self.hidden_size:]  # reverse
+        out = torch.cat((out_direction1, out_direction2), 1)
         out = self.linear(out)
         return out
 
@@ -406,21 +529,21 @@ for i in range(1, len(train_folds) - 1):
 # define the parameters
 device = tools.select_device()
 print("device:", device)
-parameters = {"n_epochs": 8,
-              "lr": 0.0008,
-              "max_seq_len": 15,
+parameters = {"n_epochs": 5,
+              "lr": 0.001,
+              "max_seq_len": 16,
               "n_layers": 3,
               "feats_per_time_step": 128,
-              "hidden_size": 32,
+              "hidden_size": 16,
               "n_classes": 2,
-              "batch_size": 64,
+              "batch_size": 32,
               "x_name": "text",
               "y_name": "label",
               "device": device}
 
 # use the model
-e_wrapper = EmbeddingWrapper(model_class=RNNEClassifier)
-# print(e_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
+e_wrapper = EmbeddingWrapper(model_class=BiLSTMEClassifier)
+#print(e_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
 fitted = e_wrapper.fit(train_data=train_data, best_parameters=parameters, verbose=1)
 vocab = fitted["vocab"]
 best_e_clf = fitted["model"]
