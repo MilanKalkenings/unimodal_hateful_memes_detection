@@ -1,11 +1,12 @@
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
 from nltk import TweetTokenizer
 from torch.utils.data import DataLoader, RandomSampler, TensorDataset
-import pandas as pd
-import numpy as np
 from transformers import AdamW
-import torch
+
 import tools
-import torch.nn as nn
 
 
 class RNNEClassifier(nn.Module):
@@ -389,7 +390,7 @@ class EmbeddingWrapper:
         n_classes = best_parameters["n_classes"]
         device = best_parameters["device"]
 
-        preprocessed = self.preprocess(data=train_data, parameters=parameters)
+        preprocessed = self.preprocess(data=train_data, parameters=best_parameters)
         train_loader = preprocessed["loader"]
         vocab = preprocessed["vocab"]
         model = self.model_class(feats_per_time_step=feats_per_time_step,
@@ -435,8 +436,14 @@ class EmbeddingWrapper:
         hidden_size = parameters["hidden_size"]
         n_classes = parameters["n_classes"]
 
+        acc_scores_train = np.zeros(n_epochs)
+        precision_scores_train = np.zeros(n_epochs)
+        recall_scores_train = np.zeros(n_epochs)
+
         acc_scores = np.zeros(n_epochs)
-        f1_scores = np.zeros(n_epochs)
+        precision_scores = np.zeros(n_epochs)
+        recall_scores = np.zeros(n_epochs)
+
         loss_func = nn.CrossEntropyLoss()
         for fold_id in range(len(folds)):
             print("=== Fold", fold_id + 1, "/", len(folds), "===")
@@ -465,17 +472,28 @@ class EmbeddingWrapper:
                     optimizer.step()  # update parameters
 
                 print("Metrics on training data after epoch", epoch, ":")
-                self.predict(model=model, data=train, parameters=parameters, vocab=vocab)
+                metrics = self.predict(model=model, data=train, parameters=parameters, vocab=vocab)
+                acc_scores_train[epoch - 1] += metrics["acc"]
+                precision_scores_train[epoch - 1] += metrics["precision"]
+                recall_scores_train[epoch - 1] += metrics["recall"]
                 print("Metrics on validation data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=val, parameters=parameters, vocab=vocab)
                 acc_scores[epoch - 1] += metrics["acc"]
-                f1_scores[epoch - 1] += metrics["f1"]
+                precision_scores[epoch - 1] += metrics["precision"]
+                recall_scores[epoch - 1] += metrics["recall"]
                 print("\n")
 
         for i in range(n_epochs):
+            acc_scores_train[i] /= len(folds)
+            precision_scores_train[i] /= len(folds)
+            recall_scores_train[i] /= len(folds)
+
             acc_scores[i] /= len(folds)
-            f1_scores[i] /= len(folds)
-        return {"acc_scores": acc_scores, "f1_scores": f1_scores, "parameters": parameters}
+            precision_scores[i] /= len(folds)
+            recall_scores[i] /= len(folds)
+        return {"acc_scores_train": acc_scores_train, "precision_scores_train": precision_scores_train,
+                "recall_scores_train": recall_scores_train, "acc_scores": acc_scores,
+                "precision_scores": precision_scores, "recall_scores": recall_scores}
 
     def predict(self, model, data, parameters, vocab):
         """
@@ -490,7 +508,6 @@ class EmbeddingWrapper:
         """
         model.eval()
         acc = 0
-        f1 = 0
         precision = 0
         recall = 0
         loader = self.preprocess(data=data, parameters=parameters, vocab=vocab)["loader"]
@@ -501,19 +518,16 @@ class EmbeddingWrapper:
             _, preds = torch.max(probas.data, 1)
             metrics = tools.evaluate(y_true=y_batch, y_probas=preds)
             acc += metrics["acc"]
-            f1 += metrics["f1"]
             precision += metrics["precision"]
             recall += metrics["recall"]
         acc /= len(loader)
-        f1 /= len(loader)
         precision /= len(loader)
         recall /= len(loader)
 
         print("Accuracy:", acc)
-        print("F1-Score:", f1)
         print("Precision:", precision)
         print("Recall:", recall)
-        return {"acc": acc, "f1": f1}
+        return {"acc": acc, "precision": precision, "recall": recall}
 
 
 # read the datasets
@@ -529,23 +543,40 @@ for i in range(1, len(train_folds) - 1):
 # define the parameters
 device = tools.select_device()
 print("device:", device)
-parameters = {"n_epochs": 5,
-              "lr": 0.001,
-              "max_seq_len": 16,
-              "n_layers": 3,
-              "feats_per_time_step": 128,
-              "hidden_size": 16,
-              "n_classes": 2,
-              "batch_size": 32,
-              "x_name": "text",
-              "y_name": "label",
-              "device": device}
+parameters1 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=128,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameters2 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.0001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=128,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameter_combinations = [parameters1, parameters2]
 
 # use the model
 e_wrapper = EmbeddingWrapper(model_class=BiLSTMEClassifier)
-#print(e_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
-fitted = e_wrapper.fit(train_data=train_data, best_parameters=parameters, verbose=1)
+tools.performance_comparison(parameter_combinations=parameter_combinations,
+                             wrapper=e_wrapper,
+                             folds=train_folds,
+                             prefix="BiLSTM")
+fitted = e_wrapper.fit(train_data=train_data, best_parameters=parameters1, verbose=1)
 vocab = fitted["vocab"]
 best_e_clf = fitted["model"]
 print("\nPERFORMANCE ON TEST:")
-e_wrapper.predict(model=best_e_clf, data=test_fold, parameters=parameters, vocab=vocab)
+e_wrapper.predict(model=best_e_clf, data=test_fold, parameters=parameters1, vocab=vocab)

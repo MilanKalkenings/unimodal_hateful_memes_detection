@@ -81,7 +81,7 @@ class PretrainedWrapper:
         loader = DataLoader(dataset=custom_dataset, batch_size=batch_size, sampler=sampler)
         return {"loader": loader}
 
-    def fit(self, train_data, best_parameters, verbose=2):
+    def fit(self, train_data, best_parameters):
         """
         Trains an CNNClassifier on train_data using a set of parameters.
 
@@ -93,14 +93,13 @@ class PretrainedWrapper:
         :param int verbose: defines the amount of prints made during the call. The higher, the more prints
         :return: The trained model
         """
-        # extract the parameters
         n_epochs = best_parameters["n_epochs"]
         lr = best_parameters["lr"]
-        device = parameters["device"]
-        pretrained_component = parameters["pretrained_component"]
-        linear_size = parameters["linear_size"]
-        freeze_epochs = parameters["freeze_epochs"]
-        unfreeze_epochs = parameters["unfreeze_epochs"]
+        device = best_parameters["device"]
+        pretrained_component = best_parameters["pretrained_component"]
+        linear_size = best_parameters["linear_size"]
+        freeze_epochs = best_parameters["freeze_epochs"]
+        unfreeze_epochs = best_parameters["unfreeze_epochs"]
 
         train_loader = self.preprocess(data=train_data, parameters=best_parameters)["loader"]
         model = PretrainedClassifier(pretrained_component=pretrained_component, linear_size=linear_size).to(device)
@@ -127,9 +126,8 @@ class PretrainedWrapper:
                 batch_loss.backward()  # calculate gradients
                 optimizer.step()  # update parameters
 
-            if verbose > 0:
-                print("Metrics on training data after epoch", epoch, ":")
-                self.predict(model=model, data=train_data, parameters=best_parameters)
+            print("Metrics on training data after epoch", epoch, ":")
+            self.predict(model=model, data=train_data, parameters=best_parameters)
         return {"model": model}
 
     def evaluate_hyperparameters(self, folds, parameters):
@@ -153,8 +151,14 @@ class PretrainedWrapper:
         freeze_epochs = parameters["freeze_epochs"]
         unfreeze_epochs = parameters["unfreeze_epochs"]
 
+        acc_scores_train = np.zeros(n_epochs)
+        precision_scores_train = np.zeros(n_epochs)
+        recall_scores_train = np.zeros(n_epochs)
+
         acc_scores = np.zeros(n_epochs)
-        f1_scores = np.zeros(n_epochs)
+        precision_scores = np.zeros(n_epochs)
+        recall_scores = np.zeros(n_epochs)
+
         loss_func = nn.BCELoss()
         for fold_id in range(len(folds)):
             print("=== Fold", fold_id + 1, "/", len(folds), "===")
@@ -186,17 +190,28 @@ class PretrainedWrapper:
                     optimizer.step()  # update parameters
 
                 print("Metrics on training data after epoch", epoch, ":")
-                self.predict(model=model, data=train, parameters=parameters)
+                metrics = self.predict(model=model, data=train, parameters=parameters)
+                acc_scores_train[epoch - 1] += metrics["acc"]
+                precision_scores_train[epoch - 1] += metrics["precision"]
+                recall_scores_train[epoch - 1] += metrics["recall"]
                 print("Metrics on validation data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=val, parameters=parameters)
                 acc_scores[epoch - 1] += metrics["acc"]
-                f1_scores[epoch - 1] += metrics["f1"]
+                precision_scores[epoch - 1] += metrics["precision"]
+                recall_scores[epoch - 1] += metrics["recall"]
                 print("\n")
 
         for i in range(n_epochs):
+            acc_scores_train[i] /= len(folds)
+            precision_scores_train[i] /= len(folds)
+            recall_scores_train[i] /= len(folds)
+
             acc_scores[i] /= len(folds)
-            f1_scores[i] /= len(folds)
-        return {"acc_scores": acc_scores, "f1_scores": f1_scores, "parameters": parameters}
+            precision_scores[i] /= len(folds)
+            recall_scores[i] /= len(folds)
+        return {"acc_scores_train": acc_scores_train, "precision_scores_train": precision_scores_train,
+                "recall_scores_train": recall_scores_train, "acc_scores": acc_scores,
+                "precision_scores": precision_scores, "recall_scores": recall_scores}
 
     def predict(self, model, data, parameters):
         """
@@ -210,7 +225,6 @@ class PretrainedWrapper:
         """
         model.eval()
         acc = 0
-        f1 = 0
         precision = 0
         recall = 0
         loader = self.preprocess(data=data, parameters=parameters)["loader"]
@@ -220,19 +234,16 @@ class PretrainedWrapper:
                 probas = torch.flatten(model(x=x_batch))
             metrics = tools.evaluate(y_true=y_batch, y_probas=probas)
             acc += metrics["acc"]
-            f1 += metrics["f1"]
             precision += metrics["precision"]
             recall += metrics["recall"]
         acc /= len(loader)
-        f1 /= len(loader)
         precision /= len(loader)
         recall /= len(loader)
 
         print("Accuracy:", acc)
-        print("F1-Score:", f1)
         print("Precision:", precision)
         print("Recall:", recall)
-        return {"acc": acc, "f1": f1}
+        return {"acc": acc, "precision": precision, "recall": recall}
 
 
 # read the datasets
@@ -247,20 +258,34 @@ for i in range(1, len(train_folds) - 1):
 device = tools.select_device()
 print("device:", device)
 transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True), transforms.ToTensor()])
-parameters = {"transform_pipe": transform_pipe,
-              "pretrained_component": models.mobilenet_v3_large(pretrained=True),  # a pretrained model
-              "linear_size": 16,
-              "n_epochs": 2,
-              "lr": 0.0001,
-              "batch_size": 16,
-              "device": device,
-              "freeze_epochs": [2],
-              "unfreeze_epochs": []}
+parameters1 = tools.parameters_pretrained(n_epochs=2,
+                                          lr=0.0001,
+                                          batch_size=16,
+                                          transform_pipe=transform_pipe,
+                                          pretrained_component=models.mobilenet_v3_large(pretrained=True),
+                                          linear_size=16,
+                                          freeze_epochs=[2],
+                                          unfreeze_epochs=[],
+                                          device=device)
 
+parameters2 = tools.parameters_pretrained(n_epochs=2,
+                                          lr=0.001,
+                                          batch_size=16,
+                                          transform_pipe=transform_pipe,
+                                          pretrained_component=models.mobilenet_v3_large(pretrained=True),
+                                          linear_size=16,
+                                          freeze_epochs=[2],
+                                          unfreeze_epochs=[],
+                                          device=device)
+
+parameter_combinations = [parameters1, parameters2]
 
 # use the model
 pretrained_wrapper = PretrainedWrapper()
-print(pretrained_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
-best_cnn = pretrained_wrapper.fit(train_data=train_data, best_parameters=parameters)["model"]
+tools.performance_comparison(parameter_combinations=parameter_combinations,
+                             wrapper=pretrained_wrapper,
+                             folds=train_folds,
+                             prefix="Mobilenet_V3_Large")
+best_cnn = pretrained_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
 print("\nPERFORMANCE ON TEST")
-pretrained_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters)
+pretrained_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters1)

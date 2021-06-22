@@ -8,9 +8,6 @@ import tools
 import torch.nn as nn
 import os
 
-device = tools.select_device()
-print("device:", device)
-
 
 def read_glove_embedding(glove_path):
     """
@@ -178,7 +175,7 @@ class GloveWrapper:
         loader = DataLoader(dataset=dataset, batch_size=batch_size, sampler=sampler)
         return {"loader": loader}
 
-    def fit(self, train_data, best_parameters, verbose=2):
+    def fit(self, train_data, best_parameters):
         """
         Trains an LSTMGloveClassifier on train_data using a set of parameters.
 
@@ -187,7 +184,6 @@ class GloveWrapper:
         (found using evaluate hyperparameters of this class). The dictionary has at least the keys "n_epochs", "lr",
         "max_seq_len", "n_layers", "feats_per_time_step", "hidden_size", "n_classes", "batch_size", "x_name", "y_name",
         "device", and the respective values
-        :param int verbose: defines the amount of prints made during the call. The higher, the more prints
         :return: The trained model
         """
         n_epochs = best_parameters["n_epochs"]
@@ -198,7 +194,7 @@ class GloveWrapper:
         n_classes = best_parameters["n_classes"]
         device = best_parameters["device"]
 
-        preprocessed = self.preprocess(data=train_data, parameters=parameters)
+        preprocessed = self.preprocess(data=train_data, parameters=best_parameters)
 
         train_loader = preprocessed["loader"]
 
@@ -221,9 +217,8 @@ class GloveWrapper:
                 batch_loss.backward()  # calculate gradients
                 optimizer.step()  # update parameters
 
-            if verbose > 0:
-                print("Metrics on training data after epoch", epoch, ":")
-                self.predict(model=model, data=train_data, parameters=best_parameters)
+            print("Metrics on training data after epoch", epoch, ":")
+            self.predict(model=model, data=train_data, parameters=best_parameters)
         return {"model": model}
 
     def predict(self, model, data, parameters):
@@ -238,7 +233,6 @@ class GloveWrapper:
         """
         model.eval()
         acc = 0
-        f1 = 0
         precision = 0
         recall = 0
         loader = self.preprocess(data=data, parameters=parameters)["loader"]
@@ -249,19 +243,16 @@ class GloveWrapper:
             _, preds = torch.max(probas.data, 1)
             metrics = tools.evaluate(y_true=y_batch, y_probas=preds)
             acc += metrics["acc"]
-            f1 += metrics["f1"]
             precision += metrics["precision"]
             recall += metrics["recall"]
         acc /= len(loader)
-        f1 /= len(loader)
         precision /= len(loader)
         recall /= len(loader)
 
         print("Accuracy:", acc)
-        print("F1-Score:", f1)
         print("Precision:", precision)
         print("Recall:", recall)
-        return {"acc": acc, "f1": f1}
+        return {"acc": acc, "precision": precision, "recall": recall}
 
     def evaluate_hyperparameters(self, folds, parameters):
         """
@@ -285,8 +276,14 @@ class GloveWrapper:
         n_classes = parameters["n_classes"]
         device = parameters["device"]
 
+        acc_scores_train = np.zeros(n_epochs)
+        precision_scores_train = np.zeros(n_epochs)
+        recall_scores_train = np.zeros(n_epochs)
+
         acc_scores = np.zeros(n_epochs)
-        f1_scores = np.zeros(n_epochs)
+        precision_scores = np.zeros(n_epochs)
+        recall_scores = np.zeros(n_epochs)
+
         loss_func = nn.CrossEntropyLoss()
         for fold_id in range(len(folds)):
             print("=== Fold", fold_id + 1, "/", len(folds), "===")
@@ -312,17 +309,28 @@ class GloveWrapper:
                     optimizer.step()  # update parameters
 
                 print("Metrics on training data after epoch", epoch, ":")
-                self.predict(model=model, data=train, parameters=parameters)
+                metrics = self.predict(model=model, data=train, parameters=parameters)
+                acc_scores_train[epoch - 1] += metrics["acc"]
+                precision_scores_train[epoch - 1] += metrics["precision"]
+                recall_scores_train[epoch - 1] += metrics["recall"]
                 print("Metrics on validation data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=val, parameters=parameters)
                 acc_scores[epoch - 1] += metrics["acc"]
-                f1_scores[epoch - 1] += metrics["f1"]
+                precision_scores[epoch - 1] += metrics["precision"]
+                recall_scores[epoch - 1] += metrics["recall"]
                 print("\n")
 
         for i in range(n_epochs):
+            acc_scores_train[i] /= len(folds)
+            precision_scores_train[i] /= len(folds)
+            recall_scores_train[i] /= len(folds)
+
             acc_scores[i] /= len(folds)
-            f1_scores[i] /= len(folds)
-        return {"acc_scores": acc_scores, "f1_scores": f1_scores, "parameters": parameters}
+            precision_scores[i] /= len(folds)
+            recall_scores[i] /= len(folds)
+        return {"acc_scores_train": acc_scores_train, "precision_scores_train": precision_scores_train,
+                "recall_scores_train": recall_scores_train, "acc_scores": acc_scores,
+                "precision_scores": precision_scores, "recall_scores": recall_scores}
 
 
 # read the data
@@ -335,22 +343,42 @@ for i in range(1, len(train_folds) - 1):
     pd.concat([train_data, train_folds[i]], axis=0)
 
 # define the parameters
-parameters = {"n_epochs": 10,
-              "lr": 0.001,
-              "max_seq_len": 16,
-              "n_layers": 3,
-              "feats_per_time_step": 50,
-              "hidden_size": 128,
-              "n_classes": 2,
-              "batch_size": 64,
-              "x_name": "text",
-              "y_name": "label",
-              "device": device}
+glove_size = 50
+device = tools.select_device()
+print("device:", device)
+parameters1 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=glove_size,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameters2 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.0001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=glove_size,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameter_combinations = [parameters1, parameters2]
 
 # use the model
-lstmg_wrapper = GloveWrapper(glove_map=glove_map, glove_size=parameters["feats_per_time_step"])
-#print(lstmg_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
-fitted = lstmg_wrapper.fit(train_data=train_data, best_parameters=parameters, verbose=1)
+lstmg_wrapper = GloveWrapper(glove_map=glove_map, glove_size=glove_size)
+tools.performance_comparison(parameter_combinations=parameter_combinations,
+                             wrapper=lstmg_wrapper,
+                             folds=train_folds,
+                             prefix="BiLSTM")
+fitted = lstmg_wrapper.fit(train_data=train_data, best_parameters=parameters1, verbose=1)
 best_lstmg_clf = fitted["model"]
 print("\nPERFORMANCE ON TEST:")
-lstmg_wrapper.predict(model=best_lstmg_clf, data=test_fold, parameters=parameters)
+lstmg_wrapper.predict(model=best_lstmg_clf, data=test_fold, parameters=parameters1)

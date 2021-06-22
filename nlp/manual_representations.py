@@ -1,10 +1,13 @@
+# note for me:
+# environments: using flair: pytorch_backup_flair (not compatible with other modules of this project)
+# environments: without flair: pytorch_backup
+
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import AdaBoostClassifier
 import xgboost
-from sklearn.metrics import f1_score
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import recall_score
 from sklearn.metrics import precision_score
@@ -121,9 +124,9 @@ class FeatureEngineer:
         commas = text_data.apply(func=comma)
         commas.name = "num_commas"
         question_marks = text_data.apply(func=question_mark)
-        question_marks.name = "num_question_marks"
+        question_marks.name = "num_ques_marks"
         exclamation_marks = text_data.apply(func=exclamation_mark)
-        exclamation_marks.name = "num_exclamation_marks"
+        exclamation_marks.name = "num_excl_marks"
         return pd.concat([periods, commas, question_marks, exclamation_marks], axis=1)
 
     def simple_bow(self, text_data, all_tokens=None):
@@ -216,7 +219,7 @@ class FeatureEngineer:
             return TextBlob(sequence).sentiment[0]
 
         textblob_sequence_sent = text_data.apply(func=sentiment)
-        textblob_sequence_sent.name = "textblob_sequence_sentiment"
+        textblob_sequence_sent.name = "tb_s_sent"
         return textblob_sequence_sent
 
     @staticmethod
@@ -238,7 +241,7 @@ class FeatureEngineer:
             return TextBlob(sequence).sentiment[1]
 
         textblob_sequence_sub = text_data.apply(func=subjectivity)
-        textblob_sequence_sub.name = "textblob_sequence_subjectivity"
+        textblob_sequence_sub.name = "tb_s_sub"
         return textblob_sequence_sub
 
     def num_tweet_tokens(self, text_data):
@@ -260,7 +263,7 @@ class FeatureEngineer:
             return len(tweet_tokenizer.tokenize(text=sequence))
 
         num_tweet_tokens = text_data.apply(func=extract_num_tokens)
-        num_tweet_tokens.name = "num_tweet_tokens"
+        num_tweet_tokens.name = "n_tokens"
         return num_tweet_tokens
 
     def vader_sequence_sentiment(self, text_data):
@@ -282,7 +285,7 @@ class FeatureEngineer:
             return analyzer.polarity_scores(text=sequence)["compound"]
 
         vader_sequence_sent = text_data.apply(func=seq_sentiment)
-        vader_sequence_sent.name = "vader_sequence_sentiment"
+        vader_sequence_sent.name = "vader_s_sent"
         return vader_sequence_sent
 
     def textblob_tokenwise_sentiment(self, text_data):
@@ -325,9 +328,9 @@ class FeatureEngineer:
             return best
 
         worst_textblob_token_sent = text_data.apply(func=worst_sentiment)
-        worst_textblob_token_sent.name = "worst_textblob_token_sentiment"
+        worst_textblob_token_sent.name = "neg_tb_t_sent"
         best_textblob_token_sent = text_data.apply(func=best_sentiment)
-        best_textblob_token_sent.name = "best_textblob_token_sentiment"
+        best_textblob_token_sent.name = "pos_tb_t_sent"
         return pd.concat([best_textblob_token_sent, worst_textblob_token_sent], axis=1)
 
     '''
@@ -358,7 +361,7 @@ class FeatureEngineer:
             return value
 
         flair_sequence_sent = text_data.apply(func=sentiment)
-        flair_sequence_sent.name = "flair_sequence_sentiment"
+        flair_sequence_sent.name = "flair_s_sent"
         return flair_sequence_sent
     '''
 
@@ -461,8 +464,8 @@ class FeatureEngineer:
             print("Metrics using these Features:")
             clf.fit(X=X_train, y=y_train)
             preds = clf.predict(X=X_test)
-            print("Accuracy on test:", accuracy_score(y_true=y_test, y_pred=preds))
-            print("F1 on test:", f1_score(y_true=y_test, y_pred=preds))
+            accuracy = accuracy_score(y_true=y_test, y_pred=preds)
+            print("Accuracy on test:", accuracy)
             print("Precision on test:", precision_score(y_true=y_test, y_pred=preds))
             print("Recall on test:", recall_score(y_true=y_test, y_pred=preds))
 
@@ -472,12 +475,21 @@ class FeatureEngineer:
                 importances_mapped = pd.Series(data=importances, index=X_test.columns)
                 sorted_importances = importances_mapped.sort_values(ascending=False)
                 print("Sorted Feature Importances:\n", sorted_importances, "\n")
+
+                # plot
+                fig, ax = plt.subplots(figsize=(5, 15))
+                lr_top_20_features = sorted_importances.head(20)
+                lr_top_20_features.plot(kind="bar", ax=ax)
+                ax.set_ylabel("Importance")
+                ax.set_title(f"Best Manual Features for \n{model_name}, \nTest Accuracy: {accuracy}")
+                plt.savefig(f"best_manual_{model_name}")
+
                 return {"importances": sorted_importances}
         else:
             clf.fit(X=X_train, y=y_train)
             preds = clf.predict(X=X_test)
-            print("Accuracy on test:", accuracy_score(y_true=y_test, y_pred=preds))
-            print("F1 on test:", f1_score(y_true=y_test, y_pred=preds))
+            accuracy = accuracy_score(y_true=y_test, y_pred=preds)
+            print("Accuracy on test:", accuracy)
             print("Precision on test:", precision_score(y_true=y_test, y_pred=preds))
             print("Recall on test:", recall_score(y_true=y_test, y_pred=preds))
             if post_f_i:
@@ -486,6 +498,15 @@ class FeatureEngineer:
                 importances_mapped = pd.Series(data=importances, index=X_test.columns)
                 sorted_importances = importances_mapped.sort_values(ascending=False)
                 print("Sorted Feature Importances:\n", sorted_importances, "\n")
+
+                # plot
+                fig, ax = plt.subplots(figsize=(5, 15))
+                lr_top_20_features = sorted_importances.head(20)
+                lr_top_20_features.plot(kind="bar", ax=ax)
+                ax.set_ylabel("Importance")
+                ax.set_title(f"Best Manual Features for \n{model_name}, \nTest Accuracy: {accuracy}")
+                plt.savefig(f"best_manual_{model_name}")
+
                 return {"importances": sorted_importances}
 
 
@@ -597,6 +618,4 @@ lr_importances = engineer.perform_classification(clf=lr,
                                                  y_test=y_test,
                                                  post_f_i=True,
                                                  pre_f_i=True)["importances"]
-lr_top_20_features = lr_importances.sort_values(ascending=False).head(20)
-lr_top_20_features.plot(kind="bar")
-plt.show()
+

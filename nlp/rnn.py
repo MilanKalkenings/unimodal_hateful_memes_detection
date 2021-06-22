@@ -7,9 +7,6 @@ import torch
 import tools
 import torch.nn as nn
 
-device = tools.select_device()
-print("device:", device)
-
 
 def synthesize_rnn_loader(seq_len, num_class_members, voc_size, device, batch_size, max_pad=8, random_state=0):
     """
@@ -218,7 +215,7 @@ class RNNWrapper:
         device = best_parameters["device"]
 
         if synth_loader is None:
-            preprocessed = self.preprocess(data=train_data, parameters=parameters)
+            preprocessed = self.preprocess(data=train_data, parameters=best_parameters)
             train_loader = preprocessed["loader"]
             vocab = preprocessed["vocab"]
         else:
@@ -273,8 +270,14 @@ class RNNWrapper:
         n_classes = parameters["n_classes"]
         device = parameters["device"]
 
+        acc_scores_train = np.zeros(n_epochs)
+        precision_scores_train = np.zeros(n_epochs)
+        recall_scores_train = np.zeros(n_epochs)
+
         acc_scores = np.zeros(n_epochs)
-        f1_scores = np.zeros(n_epochs)
+        precision_scores = np.zeros(n_epochs)
+        recall_scores = np.zeros(n_epochs)
+
         loss_func = nn.CrossEntropyLoss()
         for fold_id in range(len(folds)):
             print("=== Fold", fold_id + 1, "/", len(folds), "===")
@@ -306,17 +309,28 @@ class RNNWrapper:
                     optimizer.step()  # update parameters
 
                 print("Metrics on training data after epoch", epoch, ":")
-                self.predict(model=model, data=train, parameters=parameters, vocab=vocab, synth_loader=None)
+                metrics = self.predict(model=model, data=train, parameters=parameters, vocab=vocab, synth_loader=None)
+                acc_scores_train[epoch - 1] += metrics["acc"]
+                precision_scores_train[epoch - 1] += metrics["precision"]
+                recall_scores_train[epoch - 1] += metrics["recall"]
                 print("Metrics on validation data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=val, parameters=parameters, vocab=vocab, synth_loader=None)
                 acc_scores[epoch - 1] += metrics["acc"]
-                f1_scores[epoch - 1] += metrics["f1"]
+                precision_scores[epoch - 1] += metrics["precision"]
+                recall_scores[epoch - 1] += metrics["recall"]
                 print("\n")
 
         for i in range(n_epochs):
+            acc_scores_train[i] /= len(folds)
+            precision_scores_train[i] /= len(folds)
+            recall_scores_train[i] /= len(folds)
+
             acc_scores[i] /= len(folds)
-            f1_scores[i] /= len(folds)
-        return {"acc_scores": acc_scores, "f1_scores": f1_scores, "parameters": parameters}
+            precision_scores[i] /= len(folds)
+            recall_scores[i] /= len(folds)
+        return {"acc_scores_train": acc_scores_train, "precision_scores_train": precision_scores_train,
+                "recall_scores_train": recall_scores_train, "acc_scores": acc_scores,
+                "precision_scores": precision_scores, "recall_scores": recall_scores}
 
     def predict(self, model, data, parameters, vocab, synth_loader):
         """
@@ -335,7 +349,6 @@ class RNNWrapper:
 
         model.eval()
         acc = 0
-        f1 = 0
         precision = 0
         recall = 0
         if synth_loader is None:
@@ -353,19 +366,16 @@ class RNNWrapper:
             _, preds = torch.max(probas.data, 1)
             metrics = tools.evaluate(y_true=y_batch, y_probas=preds)
             acc += metrics["acc"]
-            f1 += metrics["f1"]
             precision += metrics["precision"]
             recall += metrics["recall"]
         acc /= len(loader)
-        f1 /= len(loader)
         precision /= len(loader)
         recall /= len(loader)
 
         print("Accuracy:", acc)
-        print("F1-Score:", f1)
         print("Precision:", precision)
         print("Recall:", recall)
-        return {"acc": acc, "f1": f1}
+        return {"acc": acc, "precision": precision, "recall": recall}
 
 
 # read the datasets
@@ -379,26 +389,46 @@ for i in range(1, len(train_folds) - 1):
     pd.concat([train_data, train_folds[i]], axis=0)
 
 # define the parameters
-parameters = {"n_epochs": 20,
-              "lr": 0.0001,
-              "max_seq_len": 16,
-              "n_layers": 3,
-              "feats_per_time_step": 1,
-              "hidden_size": 128,
-              "n_classes": 2,
-              "batch_size": 32,
-              "x_name": "text",
-              "y_name": "label",
-              "device": device}
+device = tools.select_device()
+print("device:", device)
+parameters1 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=1,  # tokens only
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameters2 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.0001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=1,  # tokens only
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameter_combinations = [parameters1, parameters2]
 
 # use the model
 rnn_wrapper = RNNWrapper()
-#print(rnn_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
-fitted = rnn_wrapper.fit(train_data=train_data, best_parameters=parameters, verbose=1)
+tools.performance_comparison(parameter_combinations=parameter_combinations,
+                             wrapper=rnn_wrapper,
+                             folds=train_folds,
+                             prefix="RNNToken")
+fitted = rnn_wrapper.fit(train_data=train_data, best_parameters=parameters1, verbose=1)
 vocab = fitted["vocab"]
-best_rnne_clf = fitted["model"]
+best_rnn_clf = fitted["model"]
 print("\nPERFORMANCE ON TEST:")
-rnn_wrapper.predict(model=best_rnne_clf, data=test_fold, parameters=parameters, vocab=vocab, synth_loader=None)
+rnn_wrapper.predict(model=best_rnn_clf, data=test_fold, parameters=parameters1, vocab=vocab, synth_loader=None)
+
 
 '''
 # to demonstrate that these models can reach way better results on other data:

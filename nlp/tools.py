@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 import torch
 from sklearn.metrics import accuracy_score
-from sklearn.metrics import f1_score
 from sklearn.metrics import precision_score
 from sklearn.metrics import recall_score
+import matplotlib.pyplot as plt
 
 
 def select_device():
@@ -56,10 +56,9 @@ def evaluate(y_true, y_probas):
     preds_batch_np = np.round(y_probas.cpu().detach().numpy())
     y_batch_np = y_true.cpu().detach().numpy()
     acc = accuracy_score(y_true=y_batch_np, y_pred=preds_batch_np)
-    f1 = f1_score(y_true=y_batch_np, y_pred=preds_batch_np, average='weighted')
     precision = precision_score(y_true=y_batch_np, y_pred=preds_batch_np, zero_division=0)
     recall = recall_score(y_true=y_batch_np, y_pred=preds_batch_np, zero_division=0)
-    return {"acc": acc, "f1": f1, "precision": precision, "recall": recall}
+    return {"acc": acc, "precision": precision, "recall": recall}
 
 
 def train_val_split(data_folds, val_fold_id):
@@ -126,3 +125,57 @@ def parameters_bert_based(n_epochs, lr, max_seq_len, batch_size, device, n_class
     """
     return {"n_epochs": n_epochs, "lr": lr, "max_seq_len": max_seq_len, "batch_size": batch_size,
             "device": device, "n_classes": n_classes, "x_name": x_name, "y_name": y_name}
+
+
+def performance_comparison(parameter_combinations, wrapper, folds, prefix):
+    for i, parameters in enumerate(parameter_combinations):
+        metrics = wrapper.evaluate_hyperparameters(folds=folds, parameters=parameters)
+        acc_scores_train = pd.Series(metrics["acc_scores_train"], name="Train Accuracy")
+        precision_scores_train = pd.Series(metrics["precision_scores_train"], name="Train Precision")
+        recall_scores_train = pd.Series(metrics["recall_scores_train"], name="Train Recall")
+
+        acc_scores = pd.Series(metrics["acc_scores"], name="Validation Accuracy")
+        precision_scores = pd.Series(metrics["precision_scores"], name="Validation Precision")
+        recall_scores = pd.Series(metrics["recall_scores"], name="Validation Recall")
+
+        fig, axs = plt.subplots(3, figsize=(5, 15))
+        fig.suptitle("Model Performance with Parameter Combination " + str(i + 1))
+        x_labels = range(1, len(acc_scores) + 1)
+
+        acc_scores_train.plot(ax=axs[0], c="red", ls=("dashed"))
+        precision_scores_train.plot(ax=axs[1], c="blue", ls=("dashed"))
+        recall_scores_train.plot(ax=axs[2], c="green", ls=("dashed"))
+
+        acc_scores.plot(ax=axs[0], c="red")
+        precision_scores.plot(ax=axs[1], c="blue")
+        recall_scores.plot(ax=axs[2], c="green")
+
+        axs[0].set_title("Accuracy Score")
+        axs[0].legend()
+        min = np.min([acc_scores_train.min(), acc_scores.min()])
+        max = np.max([acc_scores_train.max(), acc_scores.max()])
+        axs[0].set_ylim([min, max])
+        axs[0].set_xticks(range(len(acc_scores)))
+        axs[0].set_xticklabels(x_labels)
+        axs[0].set_xlabel("Epochs")
+
+        axs[1].set_title("Precision Score")
+        axs[1].legend()
+        min = np.min([precision_scores_train.min(), precision_scores.min()])
+        max = np.max([precision_scores_train.max(), precision_scores.max()])
+        axs[1].set_ylim([min, max])
+        axs[1].set_xticks(range(len(acc_scores)))
+        axs[1].set_xticklabels(x_labels)
+        axs[1].set_xlabel("Epochs")
+
+        axs[2].set_title("Recall Score")
+        axs[2].legend()
+        min = np.min([recall_scores_train.min(), recall_scores.min()])
+        max = np.max([recall_scores_train.max(), recall_scores.max()])
+        axs[2].set_ylim([min, max])
+        axs[2].set_xticks(range(len(acc_scores)))
+        axs[2].set_xticklabels(x_labels)
+        axs[2].set_xlabel("Epochs")
+
+        plt.tight_layout(pad=3)
+        plt.savefig(prefix + "_combi_" + str(i + 1))

@@ -1,12 +1,12 @@
+import numpy as np
 import pandas as pd
 import torch
-import numpy as np
+from PIL import Image
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import f1_score
 from sklearn.metrics import precision_score
 from sklearn.metrics import recall_score
 from torch.utils.data import Dataset
-from PIL import Image
 
 
 def select_device():
@@ -87,6 +87,7 @@ class CustomDataset(Dataset):
         y = torch.tensor(self.data[self.y_name][i], dtype=torch.float).to(self.device)
         return [x, y]
 
+
 def read_data(detected_share, data_path="../../data/exact_matching/"):
     """
     Reads the exact matching data.
@@ -102,3 +103,28 @@ def read_data(detected_share, data_path="../../data/exact_matching/"):
     detected = pd.read_csv(data_path + "exact_detected_" + str(detected_share) + ".csv")
     non_detected = pd.read_csv(data_path + "exact_non_detected_" + str(detected_share) + ".csv")
     return {"train": train, "val": val, "test": test, "detected": detected, "non_detected": non_detected}
+
+
+def parameters_exact_wrapper(n_epochs, lr, batch_size, transform_pipe, pretrained_component, linear_size, freeze_epochs,
+                             unfreeze_epochs, device):
+    """
+    Creates a dictionary containing the necessary preprocessing,
+    model and training parameters for the Pretrained exact matcher.
+
+    :param int n_epochs: maximum number of epochs
+    :param float lr: initial learning rate
+    :param batch_size: number of observations per batch
+    :param transform_pipe: a pipeline consisting of image transformations. Should at least ensure the images to have
+    a symetric shape and being stored in torch.Tensors
+    :param pretrained_component:
+    :param int linear_size: size of the second linear layer. Size of the first linear layer is determined automatically
+    :param list freeze_epochs: a list of integers representing the epochs in which the pretrained component
+    has to be frozen
+    :param list unfreeze_epochs: a list of integers representing the epochs in which the pretrained component
+    has to be unfrozen
+    :param str device: name of the utilized device (either cpu or cuda)
+    :return: a dictionary containing all parameters having their names as keys.
+    """
+    return {"n_epochs": n_epochs, "lr": lr, "batch_size": batch_size, "transform_pipe": transform_pipe,
+            "pretrained_component": pretrained_component, "linear_size": linear_size, "freeze_epochs": freeze_epochs,
+            "unfreeze_epochs": unfreeze_epochs, "device": device}

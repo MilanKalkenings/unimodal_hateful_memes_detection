@@ -1,12 +1,14 @@
-import tools
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, RandomSampler, TensorDataset
 from transformers import AdamW
 from transformers import BertModel
 from transformers import BertTokenizer
+
+import tools
 
 
 class BertClassifier(nn.Module):
@@ -20,6 +22,7 @@ class BertClassifier(nn.Module):
         """
         super(BertClassifier, self).__init__()
         self.bert = BertModel.from_pretrained('bert-base-uncased')  # returns powerful representations of the texts
+        self.dropout = nn.Dropout(p=0.3)
         self.linear = nn.Linear(768, 1)  # input of the first custom layer has to match dim of the BERT-output
         self.sigmoid = nn.Sigmoid()  # activation function applied to obtain probabilities
 
@@ -31,9 +34,9 @@ class BertClassifier(nn.Module):
         :return: the prediction of the whole batch
         """
         bert_output = self.bert(input_ids=x, attention_mask=attention_mask)
-        linear_output = self.linear(bert_output[1])
-        probas = self.sigmoid(linear_output)
-        return probas
+        x = self.dropout(bert_output[1])
+        x = self.linear(x)
+        return self.sigmoid(x)
 
 
 class BertWrapper:
@@ -85,7 +88,7 @@ class BertWrapper:
         sampler = RandomSampler(dataset)
         return {"loader": DataLoader(dataset=dataset, batch_size=batch_size, sampler=sampler)}
 
-    def evaluate_hyperparameters(self, folds, parameters, verbose=0):
+    def evaluate_hyperparameters(self, folds, parameters):
         """
         Evaluates the given parameters on multiple folds using k-fold cross validation.
 
@@ -95,7 +98,6 @@ class BertWrapper:
          The dictionary has at least the keys "n_epochs", "lr", "max_seq_len",
         "n_layers", "feats_per_time_step", "hidden_size", "n_classes", "batch_size", "x_name", "y_name", "device",
         and the respective values
-        :param int verbose: defines the amount of prints made during the call. The higher, the more prints
         :return: a dictionary having the keys "acc_scores", "f1_scores" and "parameters", having the accuracy score
         for each fold, the f1 score of each fold and the used parameters as values
         """
@@ -103,8 +105,14 @@ class BertWrapper:
         lr = parameters["lr"]
         device = parameters["device"]
 
+        acc_scores_train = np.zeros(n_epochs)
+        precision_scores_train = np.zeros(n_epochs)
+        recall_scores_train = np.zeros(n_epochs)
+
         acc_scores = np.zeros(n_epochs)
-        f1_scores = np.zeros(n_epochs)
+        precision_scores = np.zeros(n_epochs)
+        recall_scores = np.zeros(n_epochs)
+
         loss_func = nn.BCELoss()
         for fold_id in range(len(folds)):
             print("=== Fold", fold_id + 1, "/", len(folds), "===")
@@ -127,17 +135,28 @@ class BertWrapper:
                     optimizer.step()  # update parameters
 
                 print("Metrics on training data after epoch", epoch, ":")
-                self.predict(model=model, data=train, parameters=parameters)
+                metrics = self.predict(model=model, data=train, parameters=parameters)
+                acc_scores_train[epoch - 1] += metrics["acc"]
+                precision_scores_train[epoch - 1] += metrics["precision"]
+                recall_scores_train[epoch - 1] += metrics["recall"]
                 print("Metrics on validation data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=val, parameters=parameters)
                 acc_scores[epoch - 1] += metrics["acc"]
-                f1_scores[epoch - 1] += metrics["f1"]
+                precision_scores[epoch - 1] += metrics["precision"]
+                recall_scores[epoch - 1] += metrics["recall"]
                 print("\n")
 
         for i in range(n_epochs):
+            acc_scores_train[i] /= len(folds)
+            precision_scores_train[i] /= len(folds)
+            recall_scores_train[i] /= len(folds)
+
             acc_scores[i] /= len(folds)
-            f1_scores[i] /= len(folds)
-        return {"acc_scores": acc_scores, "f1_scores": f1_scores, "parameters": parameters}
+            precision_scores[i] /= len(folds)
+            recall_scores[i] /= len(folds)
+        return {"acc_scores_train": acc_scores_train, "precision_scores_train": precision_scores_train,
+                "recall_scores_train": recall_scores_train, "acc_scores": acc_scores,
+                "precision_scores": precision_scores, "recall_scores": recall_scores}
 
     def predict(self, model, data, parameters):
         """
@@ -151,7 +170,6 @@ class BertWrapper:
         """
         model.eval()
         acc = 0
-        f1 = 0
         precision = 0
         recall = 0
         loader = self.preprocess(data=data, parameters=parameters)["loader"]
@@ -161,21 +179,18 @@ class BertWrapper:
                 probas = torch.flatten(model(x=x_batch, attention_mask=attention_mask))
             metrics = tools.evaluate(y_true=y_batch, y_probas=probas)
             acc += metrics["acc"]
-            f1 += metrics["f1"]
             precision += metrics["precision"]
             recall += metrics["recall"]
         acc /= len(loader)
-        f1 /= len(loader)
         precision /= len(loader)
         recall /= len(loader)
 
         print("Accuracy:", acc)
-        print("F1-Score:", f1)
         print("Precision:", precision)
         print("Recall:", recall)
-        return {"acc": acc, "f1": f1}
+        return {"acc": acc, "precision": precision, "recall": recall}
 
-    def fit(self, train_data, best_parameters, verbose=0):
+    def fit(self, train_data, best_parameters):
         """
         Trains a BertClassifier on train_data using a set of parameters.
 
@@ -183,13 +198,16 @@ class BertWrapper:
         :param dict best_parameters: a dictionary having the keys "n_epochs", "lr", "max_seq_len", "batch_size",
         "x_name", "y_name", "device", and the respective values. The dictionary contains the best discovered
         hyperparameter combination found using evaluate_hyperparameters on another instance of this class.
-        :param int verbose: defines how many prints are performed. The higher, the better for debugging.
         """
         n_epochs = best_parameters["n_epochs"]
         lr = best_parameters["lr"]
         device = best_parameters["device"]
 
-        train_loader = self.preprocess(data=train_data, parameters=parameters)["loader"]
+        train_data, val_data = train_test_split(train_data, test_size=0.2)
+        train_data.index = range(len(train_data))
+        val_data.index = range(len(val_data))
+
+        train_loader = self.preprocess(data=train_data, parameters=best_parameters)["loader"]
         model = BertClassifier().to(device)
         optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)
         loss_func = nn.BCELoss()
@@ -207,9 +225,11 @@ class BertWrapper:
                 batch_loss.backward()  # calculate gradients
                 optimizer.step()  # update parameters
 
-            if verbose > 0:
-                print("Metrics on training data after epoch", epoch, ":")
-                self.predict(model=model, data=train_data, parameters=best_parameters)
+            print("Metrics on training data after epoch", epoch, ":")
+            self.predict(model=model, data=train_data, parameters=best_parameters)
+            print("Metrics on validation data after epoch", epoch, ":")
+            self.predict(model=model, data=val_data, parameters=best_parameters)
+            print("\n")
         return {"model": model}
 
 
@@ -224,17 +244,30 @@ for i in range(1, len(train_folds) - 1):
 # define the parameters
 device = tools.select_device()
 print("device:", device)
-parameters = {"n_epochs": 1,
-              "lr": 2e-5,
-              "max_seq_len": 16,
-              "batch_size": 32,
-              "x_name": "text",
-              "y_name": "label",
-              "device": device}
+parameters1 = tools.parameters_bert_based(n_epochs=4,
+                                          lr=2e-5,
+                                          max_seq_len=16,
+                                          batch_size=32,
+                                          x_name="text",
+                                          y_name="label",
+                                          device=device)
+
+parameters2 = tools.parameters_bert_based(n_epochs=4,
+                                          lr=2e-5,
+                                          max_seq_len=16,
+                                          batch_size=16,
+                                          x_name="text",
+                                          y_name="label",
+                                          device=device)
+
+parameter_combinations = [parameters1, parameters2]
 
 # use the model
 bert_wrapper = BertWrapper()
-print(bert_wrapper.evaluate_hyperparameters(folds=train_folds, parameters=parameters))
-best_bert_clf = bert_wrapper.fit(train_data=train_data, best_parameters=parameters, verbose=1)["model"]
+tools.performance_comparison(parameter_combinations=parameter_combinations,
+                             wrapper=bert_wrapper,
+                             folds=train_folds,
+                             prefix="BERT")
+best_bert_clf = bert_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
 print("\nPERFORMANCE ON TEST:")
-bert_wrapper.predict(model=best_bert_clf, data=test_fold, parameters=parameters)
+bert_wrapper.predict(model=best_bert_clf, data=test_fold, parameters=parameters1)
