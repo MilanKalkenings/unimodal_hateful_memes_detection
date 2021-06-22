@@ -96,13 +96,13 @@ class CNNWrapper:
     @staticmethod
     def preprocess(data, parameters):
         """
-        Creates a DataLoader given teh data and some parameters.
+        Creates a DataLoader given the data and some parameters.
 
         :param pd.DataFrame data: a DataFrame containing the paths to image files and the labels of the
         respective image.
-        :param dict parameters: a dictionary containing at least the parameters "transform_pipe", "batch_size",
-        "device", and the respective values.
-        :return: A DataLoader That loads images transformed by the transformation pipeline and the respective targets.
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_cnn
+        :return: A DataLoader That loads images and the respective targets. Performs transformations on the images
+        as given in >parameters<
         """
         transform_pipe = parameters["transform_pipe"]
         batch_size = parameters["batch_size"]
@@ -118,10 +118,7 @@ class CNNWrapper:
         component of the model has to have given some data.
 
         :param pd.DataFrame data: data on which the model has to be trained
-        :param dict parameters: a dictionary containing the best parameters
-        (found using evaluate hyperparameters of this class). The dictionary has at least the keys ,
-        "linear_size", "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe",
-        and the respective values
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_cnn
         :return: The number of neurons that the first linear layer of the model needs to have
         """
         linear_size = parameters["linear_size"]
@@ -142,16 +139,12 @@ class CNNWrapper:
         example_x = example_batch[0]
         return model.scalars_after_conv(x=example_x)
 
-    def fit(self, train_data, best_parameters, verbose=2):
+    def fit(self, train_data, best_parameters):
         """
-        Trains an CNNClassifier on train_data using a set of parameters.
+        Trains a CNNClassifier on train_data using a set of parameters.
 
         :param pd.DataFrame train_data: data on which the model has to be trained
-        :param dict best_parameters: a dictionary containing the best parameters
-        (found using evaluate hyperparameters of this class). The dictionary has at least the keys "n_epochs", "lr",
-        "linear_size", "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe",
-        "accumulation", and the respective values
-        :param int verbose: defines the amount of prints made during the call. The higher, the more prints
+        :param dict best_parameters: a dictionary containing the parameters defined in tools.parameters_cnn
         :return: The trained model
         """
         # extract the parameters
@@ -193,9 +186,8 @@ class CNNWrapper:
                     optimizer.step()  # update parameters
                     optimizer.zero_grad()  # clear the gradient
 
-            if verbose > 0:
-                print("Metrics on training data after epoch", epoch + 1, ":")
-                self.predict(model=model, data=train_data, parameters=best_parameters)
+            print("Metrics on training data after epoch", epoch + 1, ":")
+            self.predict(model=model, data=train_data, parameters=best_parameters)
         return {"model": model}
 
     def demo_one_batch(self, train_data, best_parameters):
@@ -206,12 +198,8 @@ class CNNWrapper:
         Functions like these are helpful for debugging neural networks.
 
         :param pd.DataFrame train_data: data on which the model has to be trained
-        :param dict best_parameters: a dictionary containing the best parameters
-        (found using evaluate hyperparameters of this class). The dictionary has at least the keys "n_epochs", "lr",
-        "linear_size", "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe",
-        "accumulation", and the respective values
+        :param dict best_parameters: a dictionary containing the parameters defined in tools.parameters_cnn
         """
-        # extract the parameters
         linear_size = best_parameters["linear_size"]
         conv_ch1 = best_parameters["conv_ch1"]
         conv_ch2 = best_parameters["conv_ch2"]
@@ -257,13 +245,11 @@ class CNNWrapper:
     def find_max_img_sizes(self, data, parameters):
         """
         Finds the maximum width and height of all the images represented by the paths in data.
-        This function can be used to determine the "size" parameter in transformation pipelines.
 
         :param pd.DataFrame data: a dataframe representing an image dataset having at least one column with image paths
         and one column with classification labels.
-        :param dict parameters: a dictionary having all necessary model parameters of the wrapped model class
-        as keys and the respective values.
-        :return: maximum width and maximum height over all images in data
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_cnn
+        :return: maximum width and maximum height over all images in >data<
         """
         parameters_shadow = parameters.copy()
         transform_pipe = transforms.Compose([transforms.ToTensor()])
@@ -287,12 +273,8 @@ class CNNWrapper:
 
         :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
         during the training time.
-        :param dict parameters: a dictionary containing one combination of  parameters.
-         The dictionary has at least the keys "n_epochs", "lr", "linear_size",
-        "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe", "freeze_epochs",
-        "unfreeze_epochs", and the respective values.
-        :return: a dictionary having the keys "acc_scores", "f1_scores" and "parameters", having the accuracy score
-        and the f1 score after each epoch averaged over all folds, and the used parameters as values.
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_cnn
+        :return: a dictionary containing the accuracy, precision, and recall scores on both training and validation data
         """
         n_epochs = parameters["n_epochs"]
         lr = parameters["lr"]
@@ -373,9 +355,9 @@ class CNNWrapper:
 
         :param CNNClassifier model: a trained CNNClassifier
         :param pd.DataFrame data: a dataset on which the prediction has to be performed
-        :param dict parameters: a dictionary having at least the keys "max_seq_len", "batch_size", "x_name", "y_name",
-        "device", and the respective values.
-        :return: a dictionary containing the f1_score and the accuracy_score of the models predictions on the data
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_cnn
+        :return: a dictionary containing the accuracy, prediction,
+        and recall score of the models predictions on the data
         """
         # extract the parameters
         model.eval()
@@ -447,7 +429,7 @@ cnn_wrapper = CNNWrapper()
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=cnn_wrapper,
                              folds=train_folds,
-                             prefix="CNN")
+                             model_name="CNN")
 best_cnn = cnn_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
 print("\nPERFORMANCE ON TEST")
 cnn_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters1)

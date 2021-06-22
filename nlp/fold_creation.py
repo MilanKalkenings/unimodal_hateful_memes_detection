@@ -1,6 +1,6 @@
-import pandas as pd
-import numpy as np
 import nltk
+import numpy as np
+import pandas as pd
 
 np.random_state = 0
 

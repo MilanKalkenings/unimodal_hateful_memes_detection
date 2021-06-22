@@ -5,6 +5,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.metrics import precision_score
 from sklearn.metrics import recall_score
 from torchvision import transforms
+
 import tools
 
 
@@ -76,7 +77,7 @@ def detect(hash_diff, thresh):
     
     :param int hash_diff: the difference between the image and an already detected image in the database
     :param int thresh: the amount of uncertainty. The higher this value, the more deviation from the already detected
-    imags is still classified as 'already detected'
+    images still leads to a classification as 'already detected'
     :return: either 1 (already detected) or 0 (not detected)
     """
     if hash_diff < thresh:
@@ -87,11 +88,11 @@ def detect(hash_diff, thresh):
 def predict(data, detected, thresh):
     """
     Predicts whether memes in a dataset are already known to be hateful, and evaluates the results using
-    accuracy score, precision score and recall score.
+    accuracy, precision, and recall score.
 
     :param pd.DataFrame data: a DataFrame containing the memes that have to be classified
     :param pd.DataFrame detected: a DataFrame containing the memes that are known to be hateful
-    :param int thresh: a threshhold that determines how similar a hashed meme has to be to hashed detected
+    :param int thresh: a threshold that determines how similar a hashed meme has to be to hashed detected
     hateful memes to be classified as 'known to be hateful'
     """
     detected_hash = detected["img"].apply(func=dhash, transform=False)
@@ -128,9 +129,9 @@ test_data = data["test"]
 detected = data["detected"]
 non_detected = data["non_detected"]
 
+# perform the match-check:
 for thresh in np.arange(start=6, stop=13, step=1):
     print("Thresh:", thresh)
     print("Train Data (50% detected, 50% non-detected):")
     predict(data=train_data, detected=detected, thresh=thresh)
-
     print("\n")

@@ -3,7 +3,6 @@ import pandas as pd
 import torch
 from PIL import Image
 from sklearn.metrics import accuracy_score
-from sklearn.metrics import f1_score
 from sklearn.metrics import precision_score
 from sklearn.metrics import recall_score
 from torch.utils.data import Dataset
@@ -27,19 +26,18 @@ def select_device():
 def evaluate(y_true, y_probas):
     """
     Evaluates the prediction-probabilities of a model
-    using accuracy_score, f1_score, precision, and recall
+    using accuracy, precision, and recall score
 
     :param torch.Tensor y_true: true labels
     :param torch.Tensor y_probas: predicted class probabilities
-    :return: dict, a dictionary having the keys "acc", and "f1" and the respective values.
+    :return: a dictionary containing the accuracy, precision, and recall score
     """
     preds_batch_np = np.round(y_probas.cpu().detach().numpy())
     y_batch_np = y_true.cpu().detach().numpy()
     acc = accuracy_score(y_true=y_batch_np, y_pred=preds_batch_np)
-    f1 = f1_score(y_true=y_batch_np, y_pred=preds_batch_np, zero_division=0)
     precision = precision_score(y_true=y_batch_np, y_pred=preds_batch_np, zero_division=1)
     recall = recall_score(y_true=y_batch_np, y_pred=preds_batch_np, zero_division=1)
-    return {"acc": acc, "f1": f1, "precision": precision, "recall": recall}
+    return {"acc": acc, "precision": precision, "recall": recall}
 
 
 class CustomDataset(Dataset):
@@ -94,7 +92,7 @@ def read_data(detected_share, data_path="../../data/exact_matching/"):
 
     :param float detected_share: determines the amount of detected hateful memes in the data.
     :param str data_path: directory in which the data is stored.
-    :return: a dictionary containing the sets train, val, test, detected and non-detected.
+    :return: a dictionary containing the sets train, val, test, detected, and non-detected.
     """
     train = pd.read_csv(data_path + "exact_train_" + str(detected_share) + ".csv")
     val = pd.read_csv(data_path + "exact_val_" + str(detected_share) + ".csv")

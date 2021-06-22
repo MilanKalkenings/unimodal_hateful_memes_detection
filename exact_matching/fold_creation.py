@@ -1,4 +1,5 @@
 import warnings
+
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -31,9 +32,8 @@ class ExactCreator:
 
     def create_regular(self, detected_share=0.05):
         """
-        Creates the desired datasets. Creates train, val and test set for a deep learning approach,
-        and detected and non_detected for the DHash approach. Teh training set for the deep learning approach
-        contains 50% detected and 50% non-detected observations.
+        Creates the desired datasets. Creates train, val and test, as well as detected and non_detected.
+        The training set contains 50% detected and 50% non-detected observations.
 
         :param float detected_share: defines the share of hateful memes that are assumed to be detected
         (and thus stored in our database) already
@@ -48,7 +48,7 @@ class ExactCreator:
 
         non_detected_train, non_detected_test = train_test_split(non_detected, test_size=0.3)  # extract test
         non_detected_train, non_detected_val = train_test_split(non_detected_train, test_size=0.3)  # extract val
-        train = pd.concat([non_detected_train.head(len(detected)), detected], axis=0).sample(frac=1)
+        train = pd.concat([non_detected_train.head(len(detected)), detected], axis=0).sample(frac=1)  # 50/50
         val = pd.concat([non_detected_val, detected], axis=0).sample(frac=1)
         test = pd.concat([non_detected_test, detected], axis=0).sample(frac=1)
 

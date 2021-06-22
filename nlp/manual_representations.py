@@ -2,23 +2,26 @@
 # environments: using flair: pytorch_backup_flair (not compatible with other modules of this project)
 # environments: without flair: pytorch_backup
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import AdaBoostClassifier
 import xgboost
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import recall_score
-from sklearn.metrics import precision_score
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-from textblob import TextBlob
 from nltk import TweetTokenizer
-import matplotlib.pyplot as plt
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
+from sklearn.tree import DecisionTreeClassifier
+from textblob import TextBlob
 
 '''
+#TODO toggle
 import flair  # installing flair leads to issues with CUDA!
+import tools
 '''
+
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB
 from sklearn.svm import SVC
@@ -46,7 +49,9 @@ class FeatureEngineer:
         """
         self.tweet_tokenizer = TweetTokenizer()
         self.vader_analyzer = SentimentIntensityAnalyzer()
+
         '''
+        #TODO toggle
         self.flair_analyzer = flair.models.TextClassifier.load("en-sentiment")
         '''
 
@@ -334,6 +339,7 @@ class FeatureEngineer:
         return pd.concat([best_textblob_token_sent, worst_textblob_token_sent], axis=1)
 
     '''
+    #TODO toggle
     def flair_sequence_sentiment(self, text_data):
         """
         Estimates the sequence sentiment using flair.
@@ -364,6 +370,7 @@ class FeatureEngineer:
         flair_sequence_sent.name = "flair_s_sent"
         return flair_sequence_sent
     '''
+
 
     def create_all(self, data, write_name, x_col="text", y_col="label", all_tokens=None):
         """
@@ -396,9 +403,13 @@ class FeatureEngineer:
         tb_token = self.textblob_tokenwise_sentiment(text_data=text)
         tb_seq = self.textblob_sequence_sentiment(text_data=text)
         tb_sub = self.textblob_sequence_subjectivity(text_data=text)
+
         '''
+        #TODO toggle
         flair_seq = self.flair_sequence_sentiment(text_data=text)
         '''
+
+        # TODO toggle
         x = pd.concat([seq_len,
                        num_tokens,
                        vader,
@@ -477,12 +488,12 @@ class FeatureEngineer:
                 print("Sorted Feature Importances:\n", sorted_importances, "\n")
 
                 # plot
-                fig, ax = plt.subplots(figsize=(5, 15))
+                fig, ax = plt.subplots(figsize=(5, 5))
                 lr_top_20_features = sorted_importances.head(20)
                 lr_top_20_features.plot(kind="bar", ax=ax)
-                ax.set_ylabel("Importance")
-                ax.set_title(f"Best Manual Features for \n{model_name}, \nTest Accuracy: {accuracy}")
-                plt.savefig(f"best_manual_{model_name}")
+                ax.set_title(f"Importances of the\nbest Manual Features for\n{model_name},\nTest Accuracy: {accuracy}")
+                plt.tight_layout(pad=3)
+                plt.savefig(f"visuals/best_manual_{model_name}")
 
                 return {"importances": sorted_importances}
         else:
@@ -503,18 +514,19 @@ class FeatureEngineer:
                 fig, ax = plt.subplots(figsize=(5, 15))
                 lr_top_20_features = sorted_importances.head(20)
                 lr_top_20_features.plot(kind="bar", ax=ax)
-                ax.set_ylabel("Importance")
-                ax.set_title(f"Best Manual Features for \n{model_name}, \nTest Accuracy: {accuracy}")
-                plt.savefig(f"best_manual_{model_name}")
+                ax.set_title(f"Importances of the\nbest Manual Features for\n{model_name},\nTest Accuracy: {accuracy}")
+                plt.savefig(f"visuals/best_manual_{model_name}")
 
                 return {"importances": sorted_importances}
 
 
 engineer = FeatureEngineer()
 # define train and test data
+
 '''
+#TODO toggle
 folds = tools.read_folds(read_path="../../data/folds_nlp", prefix="undersampled_stopped_text", test_fold_id=0)
-train_folds = folds["available_for_train"]
+train_folds = folds["train"]
 test_data = folds["test"]
 train_data = train_folds[0]
 for i in range(1, len(train_folds) - 1):
@@ -522,18 +534,15 @@ for i in range(1, len(train_folds) - 1):
 
 
 # manually engineer the text features
-train_engineered = engineer.create_all(data=train_data, write_name="train_data")
-X_train = train_engineered["x"]
-y_train = train_engineered["y"]
+engineer.create_all(data=train_data, write_name="train")
 all_tokens = train_engineered["all_tokens"]
-test_engineered = engineer.create_all(data=test_data, all_tokens=all_tokens, write_name="test_data")
-X_test = test_engineered["x"]
-y_test = test_engineered["y"]
+engineer.create_all(data=test_data, all_tokens=all_tokens, write_name="test")
+print("Dataset created")
 '''
 
 # read the data, since it's already created
-train_data = pd.read_csv("../../data/manual_features/train_data.csv")
-test_data = pd.read_csv("../../data/manual_features/test_data.csv")
+train_data = pd.read_csv("../../data/manual_features/train.csv")
+test_data = pd.read_csv("../../data/manual_features/test.csv")
 X_train = train_data.drop("label", axis=1)
 y_train = train_data["label"]
 X_test = test_data.drop("label", axis=1)
@@ -542,13 +551,14 @@ all_features = pd.Series(data=np.zeros(shape=len(X_train.columns)), index=X_trai
 
 # check the performance
 lr = LogisticRegression(random_state=0, max_iter=1_000)
-'''
 engineer.perform_classification(clf=lr,
                                 model_name="LogisticRegression",
                                 X_train=X_train,
                                 y_train=y_train,
                                 X_test=X_test,
-                                y_test=y_test)
+                                y_test=y_test,
+                                post_f_i=True,
+                                pre_f_i=True)
 
 dt = DecisionTreeClassifier(random_state=0)
 engineer.perform_classification(clf=dt,
@@ -556,7 +566,9 @@ engineer.perform_classification(clf=dt,
                                 X_train=X_train,
                                 y_train=y_train,
                                 X_test=X_test,
-                                y_test=y_test)
+                                y_test=y_test,
+                                post_f_i=True,
+                                pre_f_i=True)
 
 ada = AdaBoostClassifier(random_state=0)
 engineer.perform_classification(clf=ada,
@@ -564,7 +576,9 @@ engineer.perform_classification(clf=ada,
                                 X_train=X_train,
                                 y_train=y_train,
                                 X_test=X_test,
-                                y_test=y_test)
+                                y_test=y_test,
+                                post_f_i=True,
+                                pre_f_i=True)
 
 rf = RandomForestClassifier(random_state=0)
 engineer.perform_classification(clf=rf,
@@ -572,7 +586,9 @@ engineer.perform_classification(clf=rf,
                                 X_train=X_train,
                                 y_train=y_train,
                                 X_test=X_test,
-                                y_test=y_test)
+                                y_test=y_test,
+                                post_f_i=True,
+                                pre_f_i=True)
 
 xgb = xgboost.XGBClassifier(random_state=0)
 engineer.perform_classification(clf=xgb,
@@ -580,7 +596,9 @@ engineer.perform_classification(clf=xgb,
                                 X_train=X_train,
                                 y_train=y_train,
                                 X_test=X_test,
-                                y_test=y_test)
+                                y_test=y_test,
+                                post_f_i=True,
+                                pre_f_i=True)
 
 svc = SVC(random_state=0)
 engineer.perform_classification(clf=svc,
@@ -588,7 +606,9 @@ engineer.perform_classification(clf=svc,
                                 X_train=X_train,
                                 y_train=y_train,
                                 X_test=X_test,
-                                y_test=y_test)
+                                y_test=y_test,
+                                post_f_i=True,
+                                pre_f_i=True)
 
 nb = GaussianNB()
 engineer.perform_classification(clf=nb,
@@ -596,7 +616,9 @@ engineer.perform_classification(clf=nb,
                                 X_train=X_train,
                                 y_train=y_train,
                                 X_test=X_test,
-                                y_test=y_test)
+                                y_test=y_test,
+                                post_f_i=True,
+                                pre_f_i=True)
 
 weak_learners = [nb, svc, lr, ada]
 stacking = StackingClassifier(estimators=weak_learners)
@@ -605,17 +627,6 @@ engineer.perform_classification(clf=rf,
                                 X_train=X_train,
                                 y_train=y_train,
                                 X_test=X_test,
-                                y_test=y_test)
-'''
-
-# logistic regression is a very simple model but performs surprisingly well.
-# investigate it further:
-lr_importances = engineer.perform_classification(clf=lr,
-                                                 model_name="LogisticRegression",
-                                                 X_train=X_train,
-                                                 y_train=y_train,
-                                                 X_test=X_test,
-                                                 y_test=y_test,
-                                                 post_f_i=True,
-                                                 pre_f_i=True)["importances"]
-
+                                y_test=y_test,
+                                post_f_i=True,
+                                pre_f_i=True)

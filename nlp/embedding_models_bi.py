@@ -130,7 +130,7 @@ class GRUEClassifier(nn.Module):
 
 class BiGRUEClassifier(nn.Module):
     """
-    A GRU-based classifier that trains word embeddings itself.
+    A bidirectional GRU-based classifier that trains word embeddings itself.
     """
 
     def __init__(self, feats_per_time_step, hidden_size, n_layers, n_classes, vocab_size):
@@ -211,7 +211,7 @@ class LSTMEClassifier(nn.Module):
 
 class BiLSTMEClassifier(nn.Module):
     """
-    An LSTM-based classifier that trains word embeddings itself.
+    A bidirectional LSTM-based classifier that trains word embeddings itself.
     """
 
     def __init__(self, feats_per_time_step, hidden_size, n_layers, n_classes, vocab_size):
@@ -252,9 +252,6 @@ class BiLSTMEClassifier(nn.Module):
 
 
 class EmbeddingWrapper:
-    """
-    A wrapper for the textual classifiers, that enables the core functionalities of the network.
-    """
 
     def __init__(self, model_class):
         """
@@ -271,12 +268,12 @@ class EmbeddingWrapper:
 
         :param pd.DataFrame data: one fold of data to be processed. Contains a column <x_name> containing text
         sequences and another column <y_name> containing the class labels of the sequence
-        :param dict parameters: all parameters needed for the preprocessing.
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
         :param pd.Series vocab: the vocabulary handled for the preprocessing, if None, a new vocabulary for the whole
         textual information in data is created (create new one on train, use existing one for test/val)
-        :return: a dictionary having the key "loader" and the constructed DataLoader as value. (dictionary to match the
-        pattern of the project); If vocab=None, the key "vocab" is added to the dictionary. The value of that key
-        is the extracted vocabulary of the whole data
+        :return: a dictionary having the key "loader" and the constructed DataLoader as value;
+        If vocab=None, the key "vocab" is added to the dictionary. The value of that key
+        is the extracted vocabulary from the whole data
         """
         max_seq_len = parameters["max_seq_len"]
         batch_size = parameters["batch_size"]
@@ -373,13 +370,12 @@ class EmbeddingWrapper:
             loader = DataLoader(dataset=dataset, batch_size=batch_size, sampler=sampler)
             return {"loader": loader}  # to preserve the pattern
 
-    def fit(self, train_data, best_parameters, verbose=2):
+    def fit(self, train_data, best_parameters):
         """
         Trains a textual classifier on train_data using a set of parameters.
 
         :param pd.DataFrame train_data: data on which the model has to be trained
-        :param dict best_parameters: #TODO
-        :param int verbose: defines the amount of prints made during the call. The higher, the more prints
+        :param dict best_parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
         :return: The trained model
         """
         n_epochs = best_parameters["n_epochs"]
@@ -413,9 +409,8 @@ class EmbeddingWrapper:
                 batch_loss.backward()  # calculate gradients
                 optimizer.step()  # update parameters
 
-            if verbose > 0:
-                print("Metrics on training data after epoch", epoch, ":")
-                self.predict(model=model, data=train_data, parameters=best_parameters, vocab=vocab)
+            print("Metrics on training data after epoch", epoch, ":")
+            self.predict(model=model, data=train_data, parameters=best_parameters, vocab=vocab)
         return {"model": model, "vocab": vocab}
 
     def evaluate_hyperparameters(self, folds, parameters):
@@ -424,9 +419,8 @@ class EmbeddingWrapper:
 
         :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
         during the training time.
-        :param dict parameters: #TODO
-        :return: a dictionary having the keys "acc_scores", "f1_scores" and "parameters", having the accuracy score
-        for each fold, the f1 score of each fold and the used parameters as values
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
+        :return: a dictionary containing the accuracy, precision, and recall scores on both training and validation data
         """
         device = parameters["device"]
         n_epochs = parameters["n_epochs"]
@@ -501,10 +495,10 @@ class EmbeddingWrapper:
 
         :param nn.Module model: a trained text classifier
         :param pd.DataFrame data: a dataset on which the prediction has to be performed
-        :param dict parameters: a dictionary having at least the keys "max_seq_len", "batch_size", "x_name", "y_name",
-        "device", and the respective values.
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
         :param pd.Series vocab: a trained vocab mapping that maps tokens to integers
-        :return: a dictionary containing the f1_score and the accuracy_score of the models predictions on the data
+        :return: a dictionary containing the accuracy, prediction,
+        and recall score of the models predictions on the data
         """
         model.eval()
         acc = 0
@@ -574,8 +568,8 @@ e_wrapper = EmbeddingWrapper(model_class=BiLSTMEClassifier)
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=e_wrapper,
                              folds=train_folds,
-                             prefix="BiLSTM")
-fitted = e_wrapper.fit(train_data=train_data, best_parameters=parameters1, verbose=1)
+                             model_name="BiLSTM")
+fitted = e_wrapper.fit(train_data=train_data, best_parameters=parameters1)
 vocab = fitted["vocab"]
 best_e_clf = fitted["model"]
 print("\nPERFORMANCE ON TEST:")

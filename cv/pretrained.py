@@ -1,13 +1,13 @@
 import numpy as np
-
-import tools
 import pandas as pd
 import torch
-from torchvision import transforms
 import torch.nn as nn
 from torch.utils.data import DataLoader, RandomSampler
-from transformers import AdamW
 from torchvision import models
+from torchvision import transforms
+from transformers import AdamW
+
+import tools
 
 
 class PretrainedClassifier(nn.Module):
@@ -65,12 +65,11 @@ class PretrainedWrapper:
     @staticmethod
     def preprocess(data, parameters):
         """
-        Creates a DataLoader given teh data and some parameters.
+        Creates a DataLoader given the data and some parameters.
 
         :param pd.DataFrame data: a DataFrame containing the paths to image files and the labels of the
         respective image.
-        :param dict parameters: a dictionary containing at least the parameters "transform_pipe", "batch_size",
-        "device", and the respective values.
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_pretrained
         :return: A DataLoader That loads images transformed by the transformation pipeline and the respective targets.
         """
         transform_pipe = parameters["transform_pipe"]
@@ -83,14 +82,10 @@ class PretrainedWrapper:
 
     def fit(self, train_data, best_parameters):
         """
-        Trains an CNNClassifier on train_data using a set of parameters.
+        Trains a PretrainedClassifier on train_data using a set of parameters.
 
         :param pd.DataFrame train_data: data on which the model has to be trained
-        :param dict best_parameters: a dictionary containing the best parameters
-        (found using evaluate hyperparameters of this class). The dictionary has at least the keys "n_epochs", "lr",
-        "linear_size", "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe",
-        "freeze_epochs", "unfreeze_epochs", and the respective values.
-        :param int verbose: defines the amount of prints made during the call. The higher, the more prints
+        :param dict best_parameters: a dictionary containing the parameters defined in tools.parameters_pretrained
         :return: The trained model
         """
         n_epochs = best_parameters["n_epochs"]
@@ -136,12 +131,8 @@ class PretrainedWrapper:
 
         :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
         during the training time.
-        :param dict parameters: a dictionary containing one combination of  parameters.
-         The dictionary has at least the keys "n_epochs", "lr", "linear_size",
-        "conv_ch1", "conv_ch2", "kernel_size", "pooling_size", "device", "transform_pipe", "freeze_epochs",
-        "unfreeze_epochs", and the respective values.
-        :return: a dictionary having the keys "acc_scores", "f1_scores" and "parameters", having the accuracy score
-        and the f1 score after each epoch averaged over all folds, and the used parameters as values.
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_pretrained
+        :return: a dictionary containing the accuracy, precision, and recall scores on both training and validation data
         """
         device = parameters["device"]
         n_epochs = parameters["n_epochs"]
@@ -219,9 +210,9 @@ class PretrainedWrapper:
 
         :param CNNClassifier model: a trained CNNClassifier
         :param pd.DataFrame data: a dataset on which the prediction has to be performed
-        :param dict parameters: a dictionary having at least the keys "max_seq_len", "batch_size", "x_name", "y_name",
-        "device", and the respective values.
-        :return: a dictionary containing the f1_score and the accuracy_score of the models predictions on the data
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_pretrained
+        :return: a dictionary containing the accuracy, prediction,
+        and recall score of the models predictions on the data
         """
         model.eval()
         acc = 0
@@ -285,7 +276,7 @@ pretrained_wrapper = PretrainedWrapper()
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=pretrained_wrapper,
                              folds=train_folds,
-                             prefix="Mobilenet_V3_Large")
+                             model_name="Mobilenet_V3_Large")
 best_cnn = pretrained_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
 print("\nPERFORMANCE ON TEST")
 pretrained_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters1)

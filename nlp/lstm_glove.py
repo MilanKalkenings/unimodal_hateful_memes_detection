@@ -1,12 +1,14 @@
+import os
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
 from nltk import TweetTokenizer
 from torch.utils.data import DataLoader, RandomSampler, TensorDataset
-import pandas as pd
-import numpy as np
 from transformers import AdamW
-import torch
+
 import tools
-import torch.nn as nn
-import os
 
 
 def read_glove_embedding(glove_path):
@@ -78,7 +80,7 @@ class BiLSTMGloveClassifier(nn.Module):
         :param int n_layers: number of lstm layers
         :param int n_classes: determines how many classes have to be handled. 2 in binary case.
         """
-        super(LSTMGloveClassifier, self).__init__()
+        super(BiLSTMGloveClassifier, self).__init__()
         self.n_layers = n_layers
         self.hidden_size = hidden_size
         self.lstm = nn.LSTM(feats_per_time_step, hidden_size, n_layers, batch_first=True)
@@ -102,9 +104,6 @@ class BiLSTMGloveClassifier(nn.Module):
 
 
 class GloveWrapper:
-    """
-    A wrapper for LSTMGloveClassifier, that enables the core functionalities of the network.
-    """
 
     def __init__(self, glove_map, glove_size):
         """
@@ -124,9 +123,8 @@ class GloveWrapper:
 
         :param pd.DataFrame data: one fold of data to be processed. Contains a column <x_name> containing text
         sequences and another column <y_name> containing the class labels of the sequence
-        :param dict parameters: #TODO
-        :return: a dictionary having the key "loader" and the constructed DataLoader as value. (dictionary to match the
-        pattern of the project)
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
+        :return: a dictionary having the key "loader" and the constructed DataLoader as value.
         """
         max_seq_len = parameters["max_seq_len"]
         batch_size = parameters["batch_size"]
@@ -177,13 +175,10 @@ class GloveWrapper:
 
     def fit(self, train_data, best_parameters):
         """
-        Trains an LSTMGloveClassifier on train_data using a set of parameters.
+        Trains an (bi)LSTMGloveClassifier on train_data using a set of parameters.
 
         :param pd.DataFrame train_data: data on which the model has to be trained
-        :param dict best_parameters: a dictionary containing the best parameters
-        (found using evaluate hyperparameters of this class). The dictionary has at least the keys "n_epochs", "lr",
-        "max_seq_len", "n_layers", "feats_per_time_step", "hidden_size", "n_classes", "batch_size", "x_name", "y_name",
-        "device", and the respective values
+        :param dict best_parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
         :return: The trained model
         """
         n_epochs = best_parameters["n_epochs"]
@@ -225,11 +220,11 @@ class GloveWrapper:
         """
         Predicts the labels of a dataset and evaluates the results against the ground truth.
 
-        :param LSTMGloveClassifier model: a trained LSTMGloveClassifier
+        :param (bi)LSTMGloveClassifier model: a trained (bi)LSTMGloveClassifier
         :param pd.DataFrame data: a dataset on which the prediction has to be performed
-        :param dict parameters: a dictionary having at least the keys "max_seq_len", "batch_size", "x_name", "y_name",
-        "device", and the respective values.
-        :return: a dictionary containing the f1_score and the accuracy_score of the models predictions on the data
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
+        :return: a dictionary containing the accuracy, prediction,
+        and recall score of the models predictions on the data
         """
         model.eval()
         acc = 0
@@ -260,13 +255,8 @@ class GloveWrapper:
 
         :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
         during the training time.
-        :param dict parameters: a dictionary containing one combination of  parameters.
-         The dictionary has at least the keys "n_epochs", "lr", "max_seq_len",
-        "n_layers", "feats_per_time_step", "hidden_size", "n_classes", "batch_size", "x_name", "y_name", "device",
-        and the respective values
-        :param int verbose: defines the amount of prints made during the call. The higher, the more prints
-        :return: a dictionary having the keys "acc_scores", "f1_scores" and "parameters", having the accuracy score
-        for each fold, the f1 score of each fold and the used parameters as values
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
+        :return: a dictionary containing the accuracy, precision, and recall scores on both training and validation data
         """
         n_epochs = parameters["n_epochs"]
         lr = parameters["lr"]
@@ -377,8 +367,8 @@ lstmg_wrapper = GloveWrapper(glove_map=glove_map, glove_size=glove_size)
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=lstmg_wrapper,
                              folds=train_folds,
-                             prefix="BiLSTM")
-fitted = lstmg_wrapper.fit(train_data=train_data, best_parameters=parameters1, verbose=1)
+                             model_name="BiLSTM")
+fitted = lstmg_wrapper.fit(train_data=train_data, best_parameters=parameters1)
 best_lstmg_clf = fitted["model"]
 print("\nPERFORMANCE ON TEST:")
 lstmg_wrapper.predict(model=best_lstmg_clf, data=test_fold, parameters=parameters1)

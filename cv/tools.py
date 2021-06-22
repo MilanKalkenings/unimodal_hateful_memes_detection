@@ -4,7 +4,6 @@ import pandas as pd
 import torch
 from PIL import Image
 from sklearn.metrics import accuracy_score
-from sklearn.metrics import f1_score
 from sklearn.metrics import precision_score
 from sklearn.metrics import recall_score
 from torch.utils.data import Dataset
@@ -51,11 +50,11 @@ def read_folds(prefix, read_path, num_folds=6, test_fold_id=0):
 def evaluate(y_true, y_probas):
     """
     Evaluates the prediction-probabilities of a model
-    using accuracy_score, f1_score, precision, and recall
+    using accuracy, precision, and recall score
 
     :param torch.Tensor y_true: true labels
     :param torch.Tensor y_probas: predicted class probabilities
-    :return: dict, a dictionary having the keys "acc", and "f1" and the respective values.
+    :return: a dictionary containing the accuracy, precision, and recall score
     """
     preds_batch_np = np.round(y_probas.cpu().detach().numpy())
     y_batch_np = y_true.cpu().detach().numpy()
@@ -69,10 +68,9 @@ def train_val_split(data_folds, val_fold_id):
     """
     Concatenates a number of training folds and provides a single validation fold.
 
-    :param list data_folds: list of data folds, data folds ara pandas.DataFrames with columns "text" and "label"
+    :param list data_folds: list of data folds, data folds are pandas.DataFrames
     :param int val_fold_id: index of the validation fold in data_folds
-    :return: dictionary containing keys X_train, y_train, X_val, y_val, X_test, y_test,
-    respective values are pd.Series objects
+    :return: dictionary containing train and validation data
     """
     train_data = None
     initiated = False
@@ -182,7 +180,15 @@ def parameters_pretrained(n_epochs, lr, batch_size, transform_pipe, pretrained_c
             "unfreeze_epochs": unfreeze_epochs, "device": device}
 
 
-def performance_comparison(parameter_combinations, wrapper, folds, prefix):
+def performance_comparison(parameter_combinations, wrapper, folds, model_name):
+    """
+    Compares the performance of the models embedded in >wrapper< and visualizes the results in .png files.
+
+    :param list parameter_combinations: a list of parameter combinations used by the model.
+    :param wrapper: a model-wrapper
+    :param pd.DataFrame folds: the concatenated data folds on which the model parameters have to be evaluated
+    :param str model_name: name of the model
+    """
     for i, parameters in enumerate(parameter_combinations):
         metrics = wrapper.evaluate_hyperparameters(folds=folds, parameters=parameters)
         acc_scores_train = pd.Series(metrics["acc_scores_train"], name="Train Accuracy")
@@ -193,8 +199,9 @@ def performance_comparison(parameter_combinations, wrapper, folds, prefix):
         precision_scores = pd.Series(metrics["precision_scores"], name="Validation Precision")
         recall_scores = pd.Series(metrics["recall_scores"], name="Validation Recall")
 
+        # plot
         fig, axs = plt.subplots(3, figsize=(5, 15))
-        fig.suptitle("Model Performance with Parameter Combination " + str(i + 1))
+        fig.suptitle(f"{model_name} Performance with Parameter Combination " + str(i + 1))
         x_labels = range(1, len(acc_scores) + 1)
 
         acc_scores_train.plot(ax=axs[0], c="red", ls=("dashed"))
@@ -233,4 +240,4 @@ def performance_comparison(parameter_combinations, wrapper, folds, prefix):
         axs[2].set_xlabel("Epochs")
 
         plt.tight_layout(pad=3)
-        plt.savefig(prefix + "_combi_" + str(i + 1))
+        plt.savefig("visuals/" + model_name + "_combi_" + str(i + 1))

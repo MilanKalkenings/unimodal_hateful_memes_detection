@@ -48,14 +48,8 @@ class BertWrapper:
 
         :param pd.DataFrame data: one fold of data to be processed. Contains a column <x_name> containing text
         sequences and another column <y_name> containing the class labels of the sequence
-        :param int max_seq_len: maximum length of a sequence. Shorter sequences will be zero-padded to this size,
-        longer sequences will be truncated to this size
-        :param int batch_size: number of observations handled in each batch
-        :param str x_name: name of the column containing the text-sequences
-        :param str y_name: name of the column containing the class labels
-        :param str device: name of the device (usually "cuda" or "cpu")
-        :return: a dictionary having the key "loader" and the constructed DataLoader as value. (dictionary to match the
-        pattern of the project)
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_bert_based
+        :return: a dictionary having the key "loader" and the constructed DataLoader as value.
         """
         max_seq_len = parameters["max_seq_len"]
         batch_size = parameters["batch_size"]
@@ -70,7 +64,7 @@ class BertWrapper:
         tokenizer = BertTokenizer.from_pretrained("bert-base-uncased", do_lower_case=True)
         for text in text_col.values:
             encoded = tokenizer.encode_plus(text,
-                                            add_special_tokens=True,  # necessary for BERT
+                                            add_special_tokens=True,  # special tokens for BERT
                                             max_length=max_seq_len,
                                             padding="max_length",
                                             truncation=True,
@@ -94,12 +88,8 @@ class BertWrapper:
 
         :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
         during the training time.
-        :param dict parameters: a dictionary containing one combination of  parameters.
-         The dictionary has at least the keys "n_epochs", "lr", "max_seq_len",
-        "n_layers", "feats_per_time_step", "hidden_size", "n_classes", "batch_size", "x_name", "y_name", "device",
-        and the respective values
-        :return: a dictionary having the keys "acc_scores", "f1_scores" and "parameters", having the accuracy score
-        for each fold, the f1 score of each fold and the used parameters as values
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_bert_based
+        :return: a dictionary containing the accuracy, precision, and recall scores on both training and validation data
         """
         n_epochs = parameters["n_epochs"]
         lr = parameters["lr"]
@@ -164,9 +154,9 @@ class BertWrapper:
 
         :param BertClassifier model: a trained BERTClassifier
         :param pd.DataFrame data: a dataset on which the prediction has to be performed
-        :param dict parameters: a dictionary having at least the keys "max_seq_len", "batch_size", "x_name", "y_name",
-        "device", and the respective values.
-        :return: a dictionary containing the f1_score and the accuracy_score of the models predictions on the data
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_bert_based
+        :return: a dictionary containing the accuracy, prediction,
+        and recall score of the models predictions on the data
         """
         model.eval()
         acc = 0
@@ -195,9 +185,9 @@ class BertWrapper:
         Trains a BertClassifier on train_data using a set of parameters.
 
         :param pd.DataFrame train_data: data on which the model has to be trained
-        :param dict best_parameters: a dictionary having the keys "n_epochs", "lr", "max_seq_len", "batch_size",
-        "x_name", "y_name", "device", and the respective values. The dictionary contains the best discovered
-        hyperparameter combination found using evaluate_hyperparameters on another instance of this class.
+        :param dict best_parameters: a dictionary containing the accuracy, prediction,
+        and recall score of the models predictions on the data
+        :return: The trained model
         """
         n_epochs = best_parameters["n_epochs"]
         lr = best_parameters["lr"]
@@ -267,7 +257,7 @@ bert_wrapper = BertWrapper()
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=bert_wrapper,
                              folds=train_folds,
-                             prefix="BERT")
+                             model_name="BERT")
 best_bert_clf = bert_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
 print("\nPERFORMANCE ON TEST:")
 bert_wrapper.predict(model=best_bert_clf, data=test_fold, parameters=parameters1)
