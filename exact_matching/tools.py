@@ -92,7 +92,7 @@ def read_data(detected_share, data_path="../../data/exact_matching/"):
 
     :param float detected_share: determines the amount of detected hateful memes in the data.
     :param str data_path: directory in which the data is stored.
-    :return: a dictionary containing the sets train, val, test, detected, and non-detected.
+    :return: a dictionary containing the sets train, train_50_50, val, test, detected, and non-detected.
     """
     train = pd.read_csv(data_path + "exact_train_" + str(detected_share) + ".csv")
     val = pd.read_csv(data_path + "exact_val_" + str(detected_share) + ".csv")
@@ -100,7 +100,17 @@ def read_data(detected_share, data_path="../../data/exact_matching/"):
 
     detected = pd.read_csv(data_path + "exact_detected_" + str(detected_share) + ".csv")
     non_detected = pd.read_csv(data_path + "exact_non_detected_" + str(detected_share) + ".csv")
-    return {"train": train, "val": val, "test": test, "detected": detected, "non_detected": non_detected}
+
+    balanced = pd.read_csv(data_path + "exact_balanced_" + str(detected_share) + ".csv")
+    imbalanced = pd.read_csv(data_path + "exact_imbalanced_" + str(detected_share) + ".csv")
+
+    return {"train": train,
+            "val": val,
+            "test": test,
+            "detected": detected,
+            "non_detected": non_detected,
+            "balanced": balanced,
+            "imbalanced": imbalanced}
 
 
 def parameters_exact_wrapper(n_epochs, lr, batch_size, transform_pipe, pretrained_component, linear_size, freeze_epochs,

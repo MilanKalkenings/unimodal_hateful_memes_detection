@@ -146,7 +146,7 @@ def performance_comparison(parameter_combinations, wrapper, folds, model_name):
 
         # plot
         fig, axs = plt.subplots(3, figsize=(5, 15))
-        fig.suptitle(f"{model_name} Performance with Parameter Combination " + str(i + 1))
+        fig.suptitle(f"{model_name}\nPerformance with\nParameter Combination " + str(i + 1))
         x_labels = range(1, len(acc_scores) + 1)
 
         acc_scores_train.plot(ax=axs[0], c="red", ls=("dashed"))

@@ -37,7 +37,6 @@ class PretrainedClassifier(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        print(x.size())
         x = self.pretrained_component(x)
         x = self.linear1(x)
         x = self.linear2(x)
@@ -249,24 +248,25 @@ for i in range(1, len(train_folds) - 1):
 device = tools.select_device()
 print("device:", device)
 transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True), transforms.ToTensor()])
-parameters1 = tools.parameters_pretrained(n_epochs=2,
+
+parameters1 = tools.parameters_pretrained(n_epochs=10,
                                           lr=0.0001,
                                           batch_size=16,
                                           transform_pipe=transform_pipe,
                                           pretrained_component=models.mobilenet_v3_large(pretrained=True),
                                           linear_size=16,
-                                          freeze_epochs=[2],
+                                          freeze_epochs=[],
                                           unfreeze_epochs=[],
                                           device=device)
 
-parameters2 = tools.parameters_pretrained(n_epochs=2,
-                                          lr=0.001,
+parameters2 = tools.parameters_pretrained(n_epochs=10,
+                                          lr=0.0001,
                                           batch_size=16,
                                           transform_pipe=transform_pipe,
                                           pretrained_component=models.mobilenet_v3_large(pretrained=True),
                                           linear_size=16,
-                                          freeze_epochs=[2],
-                                          unfreeze_epochs=[],
+                                          freeze_epochs=[2, 4],
+                                          unfreeze_epochs=[3, 5],
                                           device=device)
 
 parameter_combinations = [parameters1, parameters2]

@@ -122,16 +122,19 @@ def predict(data, detected, thresh):
 
 
 # read the data
-data = tools.read_data(detected_share=0.2)
-train_data = data["train"]
-val_data = data["val"]
-test_data = data["test"]
+data = tools.read_data(detected_share=0.05)
 detected = data["detected"]
-non_detected = data["non_detected"]
+balanced = data["balanced"]
+imbalanced = data["imbalanced"]
+
+print(len(detected))
+print(len(imbalanced))
+print(len(balanced))
 
 # perform the match-check:
-for thresh in np.arange(start=6, stop=13, step=1):
-    print("Thresh:", thresh)
-    print("Train Data (50% detected, 50% non-detected):")
-    predict(data=train_data, detected=detected, thresh=thresh)
+for thresh in np.arange(start=3, stop=16, step=1):
+    print("Balanced Dataset (50% detected, 50% unknown):", thresh)
+    predict(data=balanced, detected=detected, thresh=thresh)
+    print("Highly Imbalanced Dataset (~ 1.8% detected, ~98.2% unknown):")
+    predict(data=imbalanced, detected=detected, thresh=thresh)
     print("\n")

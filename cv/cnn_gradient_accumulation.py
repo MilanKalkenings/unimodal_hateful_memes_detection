@@ -182,7 +182,7 @@ class CNNWrapper:
                 batch_loss /= accumulation
                 batch_loss.backward()  # calculate gradients
 
-                if ((i + 1) % accumulation == 0):
+                if ((i + 1) % accumulation == 0) or ((i + 1) == len(train_loader)):
                     optimizer.step()  # update parameters
                     optimizer.zero_grad()  # clear the gradient
 
@@ -234,7 +234,7 @@ class CNNWrapper:
             batch_loss /= accumulation
             batch_loss.backward()  # calculate gradients
 
-            if (epoch + 1) % accumulation == 0:
+            if ((epoch + 1) % accumulation == 0) or (epoch + 1) == n_epochs:
                 optimizer.step()  # update parameters
                 optimizer.zero_grad()  # clear the gradient
 
@@ -321,7 +321,7 @@ class CNNWrapper:
                     batch_loss /= accumulation
                     batch_loss.backward()  # calculate gradients
 
-                    if (i + 1) % accumulation == 0:
+                    if ((i + 1) % accumulation == 0) or ((i + 1) == len(train_loader)):
                         optimizer.step()  # update parameters
                         optimizer.zero_grad()  # clear the gradient
 
@@ -424,7 +424,7 @@ parameter_combinations = [parameters1, parameters2]
 
 # use the model
 cnn_wrapper = CNNWrapper()
-# cnn_wrapper.demo_one_batch(train_data=train_data, best_parameters=parameters1)
+cnn_wrapper.demo_one_batch(train_data=train_data, best_parameters=parameters1)
 # cnn_wrapper.find_max_img_sizes(data=train_data, parameters=parameters1)
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=cnn_wrapper,
