@@ -36,7 +36,8 @@ class ExactClassifier(nn.Module):
         PyTorch provide an output tensor of size 1_000.
         """
         super(ExactClassifier, self).__init__()
-        self.pretrained_component = pretrained_component
+        if pretrained_component == "mobilenet":
+            self.pretrained_component = models.mobilenet_v3_large(pretrained=True)
         self.linear1 = nn.Linear(in_features=1_000, out_features=linear_size)
         self.linear2 = nn.Linear(in_features=linear_size, out_features=1)  # binary classification -> 1 out feature
         self.sigmoid = nn.Sigmoid()
@@ -266,7 +267,7 @@ parameters = tools.parameters_exact_wrapper(n_epochs=100,
                                             lr=0.0001,
                                             batch_size=32,
                                             transform_pipe=transform_pipe,
-                                            pretrained_component=models.mobilenet_v3_large(pretrained=True),
+                                            pretrained_component="mobilenet",
                                             linear_size=8,
                                             freeze_epochs=[],
                                             unfreeze_epochs=[],

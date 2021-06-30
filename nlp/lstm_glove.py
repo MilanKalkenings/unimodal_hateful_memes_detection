@@ -175,7 +175,7 @@ class GloveWrapper:
 
     def fit(self, train_data, best_parameters):
         """
-        Trains an (bi)LSTMGloveClassifier on train_data using a set of parameters.
+        Trains a (bi)LSTMGloveClassifier on train_data using a set of parameters.
 
         :param pd.DataFrame train_data: data on which the model has to be trained
         :param dict best_parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
@@ -220,16 +220,14 @@ class GloveWrapper:
         """
         Predicts the labels of a dataset and evaluates the results against the ground truth.
 
-        :param (bi)LSTMGloveClassifier model: a trained (bi)LSTMGloveClassifier
+        :param CNNClassifier model: a trained CNNClassifier
         :param pd.DataFrame data: a dataset on which the prediction has to be performed
-        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
-        :return: a dictionary containing the accuracy, prediction,
-        and recall score of the models predictions on the data
+        :param dict parameters: a dictionary containing the parameters defined in tools.parameters_cnn
+        :return: a dictionary containing the accuracy and roc-auc score of the models predictions on the data
         """
         model.eval()
         acc = 0
-        precision = 0
-        recall = 0
+        roc_auc = 0
         loader = self.preprocess(data=data, parameters=parameters)["loader"]
         for batch in loader:
             x_batch, y_batch = batch
@@ -238,16 +236,14 @@ class GloveWrapper:
             _, preds = torch.max(probas.data, 1)
             metrics = tools.evaluate(y_true=y_batch, y_probas=preds)
             acc += metrics["acc"]
-            precision += metrics["precision"]
-            recall += metrics["recall"]
+            roc_auc += metrics["roc_auc"]
+
         acc /= len(loader)
-        precision /= len(loader)
-        recall /= len(loader)
+        roc_auc /= len(loader)
 
         print("Accuracy:", acc)
-        print("Precision:", precision)
-        print("Recall:", recall)
-        return {"acc": acc, "precision": precision, "recall": recall}
+        print("ROCAUC:", roc_auc)
+        return {"acc": acc, "roc_auc": roc_auc}
 
     def evaluate_hyperparameters(self, folds, parameters):
         """
@@ -256,7 +252,7 @@ class GloveWrapper:
         :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
         during the training time.
         :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
-        :return: a dictionary containing the accuracy, precision, and recall scores on both training and validation data
+        :return: a dictionary containing the accuracy and roc-auc scores on both training and validation data
         """
         n_epochs = parameters["n_epochs"]
         lr = parameters["lr"]
@@ -267,12 +263,10 @@ class GloveWrapper:
         device = parameters["device"]
 
         acc_scores_train = np.zeros(n_epochs)
-        precision_scores_train = np.zeros(n_epochs)
-        recall_scores_train = np.zeros(n_epochs)
+        roc_auc_scores_train = np.zeros(n_epochs)
 
         acc_scores = np.zeros(n_epochs)
-        precision_scores = np.zeros(n_epochs)
-        recall_scores = np.zeros(n_epochs)
+        roc_auc_scores = np.zeros(n_epochs)
 
         loss_func = nn.CrossEntropyLoss()
         for fold_id in range(len(folds)):
@@ -301,26 +295,23 @@ class GloveWrapper:
                 print("Metrics on training data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=train, parameters=parameters)
                 acc_scores_train[epoch - 1] += metrics["acc"]
-                precision_scores_train[epoch - 1] += metrics["precision"]
-                recall_scores_train[epoch - 1] += metrics["recall"]
+                roc_auc_scores_train[epoch - 1] += metrics["roc_auc"]
+
                 print("Metrics on validation data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=val, parameters=parameters)
                 acc_scores[epoch - 1] += metrics["acc"]
-                precision_scores[epoch - 1] += metrics["precision"]
-                recall_scores[epoch - 1] += metrics["recall"]
+                roc_auc_scores[epoch - 1] += metrics["roc_auc"]
                 print("\n")
 
         for i in range(n_epochs):
             acc_scores_train[i] /= len(folds)
-            precision_scores_train[i] /= len(folds)
-            recall_scores_train[i] /= len(folds)
+            roc_auc_scores_train[i] /= len(folds)
 
             acc_scores[i] /= len(folds)
-            precision_scores[i] /= len(folds)
-            recall_scores[i] /= len(folds)
-        return {"acc_scores_train": acc_scores_train, "precision_scores_train": precision_scores_train,
-                "recall_scores_train": recall_scores_train, "acc_scores": acc_scores,
-                "precision_scores": precision_scores, "recall_scores": recall_scores}
+            roc_auc_scores[i] /= len(folds)
+
+        return {"acc_scores_train": acc_scores_train, "acc_scores": acc_scores,
+                "roc_auc_scores_train": roc_auc_scores_train, "roc_auc_scores": roc_auc_scores}
 
 
 # read the data
@@ -336,7 +327,55 @@ for i in range(1, len(train_folds) - 1):
 glove_size = 50
 device = tools.select_device()
 print("device:", device)
-parameters1 = tools.parameters_rnn_based(n_epochs=5,
+parameters1 = tools.parameters_rnn_based(n_epochs=10,
+                                         lr=0.001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=glove_size,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=64,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameters2 = tools.parameters_rnn_based(n_epochs=10,
+                                         lr=0.0001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=glove_size,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=64,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameters3 = tools.parameters_rnn_based(n_epochs=10,
+                                         lr=0.001,
+                                         max_seq_len=14,
+                                         n_layers=3,
+                                         feats_per_time_step=glove_size,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=64,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameters4 = tools.parameters_rnn_based(n_epochs=10,
+                                         lr=0.001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=glove_size,
+                                         hidden_size=128,
+                                         n_classes=2,
+                                         batch_size=64,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameters5 = tools.parameters_rnn_based(n_epochs=10,
                                          lr=0.001,
                                          max_seq_len=16,
                                          n_layers=3,
@@ -348,26 +387,14 @@ parameters1 = tools.parameters_rnn_based(n_epochs=5,
                                          y_name="label",
                                          device=device)
 
-parameters2 = tools.parameters_rnn_based(n_epochs=5,
-                                         lr=0.0001,
-                                         max_seq_len=16,
-                                         n_layers=3,
-                                         feats_per_time_step=glove_size,
-                                         hidden_size=16,
-                                         n_classes=2,
-                                         batch_size=32,
-                                         x_name="text",
-                                         y_name="label",
-                                         device=device)
-
-parameter_combinations = [parameters1, parameters2]
+parameter_combinations = [parameters1, parameters2, parameters3, parameters4, parameters5]
 
 # use the model
 lstmg_wrapper = GloveWrapper(glove_map=glove_map, glove_size=glove_size)
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=lstmg_wrapper,
                              folds=train_folds,
-                             model_name="BiLSTM")
+                             model_name="GloVe LSTM")
 fitted = lstmg_wrapper.fit(train_data=train_data, best_parameters=parameters1)
 best_lstmg_clf = fitted["model"]
 print("\nPERFORMANCE ON TEST:")

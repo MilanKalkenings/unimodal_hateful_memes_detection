@@ -124,7 +124,7 @@ def parameters_exact_wrapper(n_epochs, lr, batch_size, transform_pipe, pretraine
     :param batch_size: number of observations per batch
     :param transform_pipe: a pipeline consisting of image transformations. Should at least ensure the images to have
     a symetric shape and being stored in torch.Tensors
-    :param pretrained_component:
+    :param str pretrained_component: the name of a pretrained model that is used as one component of the model
     :param int linear_size: size of the second linear layer. Size of the first linear layer is determined automatically
     :param list freeze_epochs: a list of integers representing the epochs in which the pretrained component
     has to be frozen

@@ -274,7 +274,7 @@ class CNNWrapper:
         :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
         during the training time.
         :param dict parameters: a dictionary containing the parameters defined in tools.parameters_cnn
-        :return: a dictionary containing the accuracy, precision, and recall scores on both training and validation data
+        :return: a dictionary containing the accuracy and roc-auc scores on both training and validation data
         """
         n_epochs = parameters["n_epochs"]
         lr = parameters["lr"]
@@ -287,12 +287,10 @@ class CNNWrapper:
         accumulation = parameters["accumulation"]
 
         acc_scores_train = np.zeros(n_epochs)
-        precision_scores_train = np.zeros(n_epochs)
-        recall_scores_train = np.zeros(n_epochs)
+        roc_auc_scores_train = np.zeros(n_epochs)
 
         acc_scores = np.zeros(n_epochs)
-        precision_scores = np.zeros(n_epochs)
-        recall_scores = np.zeros(n_epochs)
+        roc_auc_scores = np.zeros(n_epochs)
 
         loss_func = nn.BCELoss()
         for fold_id in range(len(folds)):
@@ -328,26 +326,23 @@ class CNNWrapper:
                 print("Metrics on training data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=train, parameters=parameters)
                 acc_scores_train[epoch - 1] += metrics["acc"]
-                precision_scores_train[epoch - 1] += metrics["precision"]
-                recall_scores_train[epoch - 1] += metrics["recall"]
+                roc_auc_scores_train[epoch - 1] += metrics["roc_auc"]
+
                 print("Metrics on validation data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=val, parameters=parameters)
                 acc_scores[epoch - 1] += metrics["acc"]
-                precision_scores[epoch - 1] += metrics["precision"]
-                recall_scores[epoch - 1] += metrics["recall"]
+                roc_auc_scores[epoch - 1] += metrics["roc_auc"]
                 print("\n")
 
         for i in range(n_epochs):
             acc_scores_train[i] /= len(folds)
-            precision_scores_train[i] /= len(folds)
-            recall_scores_train[i] /= len(folds)
+            roc_auc_scores_train[i] /= len(folds)
 
             acc_scores[i] /= len(folds)
-            precision_scores[i] /= len(folds)
-            recall_scores[i] /= len(folds)
-        return {"acc_scores_train": acc_scores_train, "precision_scores_train": precision_scores_train,
-                "recall_scores_train": recall_scores_train, "acc_scores": acc_scores,
-                "precision_scores": precision_scores, "recall_scores": recall_scores}
+            roc_auc_scores[i] /= len(folds)
+
+        return {"acc_scores_train": acc_scores_train, "acc_scores": acc_scores,
+                "roc_auc_scores_train": roc_auc_scores_train, "roc_auc_scores": roc_auc_scores}
 
     def predict(self, model, data, parameters):
         """
@@ -356,14 +351,11 @@ class CNNWrapper:
         :param CNNClassifier model: a trained CNNClassifier
         :param pd.DataFrame data: a dataset on which the prediction has to be performed
         :param dict parameters: a dictionary containing the parameters defined in tools.parameters_cnn
-        :return: a dictionary containing the accuracy, prediction,
-        and recall score of the models predictions on the data
+        :return: a dictionary containing the accuracy and roc-auc score of the models predictions on the data
         """
-        # extract the parameters
         model.eval()
         acc = 0
-        precision = 0
-        recall = 0
+        roc_auc = 0
         loader = self.preprocess(data=data, parameters=parameters)["loader"]
         for batch in loader:
             x_batch, y_batch = batch
@@ -371,16 +363,14 @@ class CNNWrapper:
                 probas = torch.flatten(model(x=x_batch))
             metrics = tools.evaluate(y_true=y_batch, y_probas=probas)
             acc += metrics["acc"]
-            precision += metrics["precision"]
-            recall += metrics["recall"]
+            roc_auc += metrics["roc_auc"]
+
         acc /= len(loader)
-        precision /= len(loader)
-        recall /= len(loader)
+        roc_auc /= len(loader)
 
         print("Accuracy:", acc)
-        print("Precision:", precision)
-        print("Recall:", recall)
-        return {"acc": acc, "precision": precision, "recall": recall}
+        print("ROCAUC:", roc_auc)
+        return {"acc": acc, "roc_auc": roc_auc}
 
 
 # read the datasets
@@ -394,58 +384,44 @@ for i in range(1, len(train_folds) - 1):
     pd.concat([train_data, train_folds[i]], axis=0)
 
 # define the parameters
-transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True),
+'''transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True),
                                      transforms.ToTensor()])
-parameters1 = tools.parameters_cnn(n_epochs=2,
+parameters1 = tools.parameters_cnn(n_epochs=10,
                                    lr=0.0001,
-                                   batch_size=8,
+                                   batch_size=128,
                                    transform_pipe=transform_pipe,
-                                   conv_ch1=8,
-                                   conv_ch2=4,
-                                   linear_size=16,
+                                   conv_ch1=4,
+                                   conv_ch2=2,
+                                   linear_size=32,
                                    kernel_size=3,
                                    pooling_size=2,
-                                   accumulation=4,
-                                   device=device)
+                                   accumulation=2,
+                                   device=device)'''
 
-parameters2 = tools.parameters_cnn(n_epochs=3,
+transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True),
+                                     transforms.ToTensor()])
+parameters1 = tools.parameters_cnn(n_epochs=30,
                                    lr=0.0001,
-                                   batch_size=8,
+                                   batch_size=128,
                                    transform_pipe=transform_pipe,
-                                   conv_ch1=8,
-                                   conv_ch2=4,
-                                   linear_size=16,
-                                   kernel_size=2,
+                                   conv_ch1=4,
+                                   conv_ch2=2,
+                                   linear_size=32,
+                                   kernel_size=3,
                                    pooling_size=2,
                                    accumulation=2,
                                    device=device)
 
-parameter_combinations = [parameters1, parameters2]
+parameter_combinations = [parameters1]
 
 # use the model
 cnn_wrapper = CNNWrapper()
-cnn_wrapper.demo_one_batch(train_data=train_data, best_parameters=parameters1)
+#cnn_wrapper.demo_one_batch(train_data=train_data, best_parameters=parameters1)
 # cnn_wrapper.find_max_img_sizes(data=train_data, parameters=parameters1)
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=cnn_wrapper,
                              folds=train_folds,
-                             model_name="CNN")
-best_cnn = cnn_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
-print("\nPERFORMANCE ON TEST")
-cnn_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters1)
-
-'''
-# 67 test accuracy and confusion based metrics above 0.65 on undersampled_img
-transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True),
-                                     transforms.ToTensor()])
-parameters = {"transform_pipe": transform_pipe,
-              "n_epochs": 20,
-              "lr": 0.0001,
-              "batch_size": 128,
-              "device": device,
-              "conv_ch1": 4,
-              "conv_ch2": 2,
-              "linear_size": 32,
-              "kernel_size": 3,
-              "pooling_size": 2}
-'''
+                             model_name="CNN full")
+#best_cnn = cnn_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
+#print("\nPERFORMANCE ON TEST")
+#cnn_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters1)

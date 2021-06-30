@@ -247,7 +247,7 @@ class RNNWrapper:
         :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
         during the training time.
         :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
-        :return: a dictionary containing the accuracy, precision, and recall scores on both training and validation data
+        :return: a dictionary containing the accuracy and roc-auc scores on both training and validation data
         """
         n_epochs = parameters["n_epochs"]
         lr = parameters["lr"]
@@ -259,12 +259,10 @@ class RNNWrapper:
         device = parameters["device"]
 
         acc_scores_train = np.zeros(n_epochs)
-        precision_scores_train = np.zeros(n_epochs)
-        recall_scores_train = np.zeros(n_epochs)
+        roc_auc_scores_train = np.zeros(n_epochs)
 
         acc_scores = np.zeros(n_epochs)
-        precision_scores = np.zeros(n_epochs)
-        recall_scores = np.zeros(n_epochs)
+        roc_auc_scores = np.zeros(n_epochs)
 
         loss_func = nn.CrossEntropyLoss()
         for fold_id in range(len(folds)):
@@ -296,29 +294,26 @@ class RNNWrapper:
                     batch_loss.backward()  # calculate gradients
                     optimizer.step()  # update parameters
 
-                print("Metrics on training data after epoch", epoch + 1, ":")
-                metrics = self.predict(model=model, data=train, parameters=parameters, vocab=vocab, synth_loader=None)
+                print("Metrics on training data after epoch", epoch, ":")
+                metrics = self.predict(model=model, data=train, parameters=parameters, vocab=vocab)
                 acc_scores_train[epoch - 1] += metrics["acc"]
-                precision_scores_train[epoch - 1] += metrics["precision"]
-                recall_scores_train[epoch - 1] += metrics["recall"]
-                print("Metrics on validation data after epoch", epoch + 1, ":")
-                metrics = self.predict(model=model, data=val, parameters=parameters, vocab=vocab, synth_loader=None)
+                roc_auc_scores_train[epoch - 1] += metrics["roc_auc"]
+
+                print("Metrics on validation data after epoch", epoch, ":")
+                metrics = self.predict(model=model, data=val, parameters=parameters, vocab=vocab)
                 acc_scores[epoch - 1] += metrics["acc"]
-                precision_scores[epoch - 1] += metrics["precision"]
-                recall_scores[epoch - 1] += metrics["recall"]
+                roc_auc_scores[epoch - 1] += metrics["roc_auc"]
                 print("\n")
 
         for i in range(n_epochs):
             acc_scores_train[i] /= len(folds)
-            precision_scores_train[i] /= len(folds)
-            recall_scores_train[i] /= len(folds)
+            roc_auc_scores_train[i] /= len(folds)
 
             acc_scores[i] /= len(folds)
-            precision_scores[i] /= len(folds)
-            recall_scores[i] /= len(folds)
-        return {"acc_scores_train": acc_scores_train, "precision_scores_train": precision_scores_train,
-                "recall_scores_train": recall_scores_train, "acc_scores": acc_scores,
-                "precision_scores": precision_scores, "recall_scores": recall_scores}
+            roc_auc_scores[i] /= len(folds)
+
+        return {"acc_scores_train": acc_scores_train, "acc_scores": acc_scores,
+                "roc_auc_scores_train": roc_auc_scores_train, "roc_auc_scores": roc_auc_scores}
 
     def predict(self, model, data, parameters, vocab, synth_loader):
         """
@@ -329,16 +324,14 @@ class RNNWrapper:
         :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
         :param pd.Series vocab: a trained vocab mapping that maps tokens to integers
         :param synth_loader: a DataLoader for synthetic data, used for debugging only
-        :return: a dictionary containing the accuracy, prediction,
-        and recall score of the models predictions on the data
+        :return: a dictionary containing the accuracy and roc-auc score of the models predictions on the data
         """
         max_seq_len = parameters["max_seq_len"]
         feats_per_time_step = parameters["feats_per_time_step"]
 
         model.eval()
         acc = 0
-        precision = 0
-        recall = 0
+        roc_auc = 0
         if synth_loader is None:
             preprocessed = self.preprocess(data=data, parameters=parameters, vocab=vocab)
 
@@ -354,16 +347,14 @@ class RNNWrapper:
             _, preds = torch.max(probas.data, 1)
             metrics = tools.evaluate(y_true=y_batch, y_probas=preds)
             acc += metrics["acc"]
-            precision += metrics["precision"]
-            recall += metrics["recall"]
+            roc_auc += metrics["roc_auc"]
+
         acc /= len(loader)
-        precision /= len(loader)
-        recall /= len(loader)
+        roc_auc /= len(loader)
 
         print("Accuracy:", acc)
-        print("Precision:", precision)
-        print("Recall:", recall)
-        return {"acc": acc, "precision": precision, "recall": recall}
+        print("ROCAUC:", roc_auc)
+        return {"acc": acc, "roc_auc": roc_auc}
 
 
 # read the datasets

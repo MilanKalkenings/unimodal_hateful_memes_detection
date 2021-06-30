@@ -14,12 +14,6 @@ class PretrainedClassifier(nn.Module):
     """
     A binary classifier based on a pretrained component.
     A variety of pretrained models can be used.
-    Some of which are (tested):
-    resnet101,
-    resnet18,
-    resnext101_32x8d,
-    alexnet,
-    mobilenet_v3_large
     """
 
     def __init__(self, linear_size, pretrained_component):
@@ -31,7 +25,13 @@ class PretrainedClassifier(nn.Module):
         PyTorch provide an output tensor of size 1_000.
         """
         super(PretrainedClassifier, self).__init__()
-        self.pretrained_component = pretrained_component
+        if pretrained_component == "mobilenet":
+            self.pretrained_component = models.mobilenet_v3_small(pretrained=True)
+        if pretrained_component == "resnet":
+            self.pretrained_component = models.resnet18(pretrained=True)
+        if pretrained_component == "densenet":
+            self.pretrained_component = models.densenet121(pretrained=True)
+
         self.linear1 = nn.Linear(in_features=1_000, out_features=linear_size)
         self.linear2 = nn.Linear(in_features=linear_size, out_features=1)  # binary classification -> 1 out feature
         self.sigmoid = nn.Sigmoid()
@@ -94,6 +94,7 @@ class PretrainedWrapper:
         linear_size = best_parameters["linear_size"]
         freeze_epochs = best_parameters["freeze_epochs"]
         unfreeze_epochs = best_parameters["unfreeze_epochs"]
+        accumulation = best_parameters["accumulation"]
 
         train_loader = self.preprocess(data=train_data, parameters=best_parameters)["loader"]
         model = PretrainedClassifier(pretrained_component=pretrained_component, linear_size=linear_size).to(device)
@@ -115,10 +116,13 @@ class PretrainedWrapper:
                 x_batch, y_batch = batch
                 # model(x) = model.__call__(x) performs forward (+ more)
                 probas = torch.flatten(model(x=x_batch))
-                model.zero_grad()  # reset gradients from last step
                 batch_loss = loss_func(probas, y_batch)  # calculate loss
+                batch_loss /= accumulation
                 batch_loss.backward()  # calculate gradients
-                optimizer.step()  # update parameters
+
+                if ((i + 1) % accumulation == 0) or ((i + 1) == len(train_loader)):
+                    optimizer.step()  # update parameters
+                    optimizer.zero_grad()  # clear the gradient
 
             print("Metrics on training data after epoch", epoch, ":")
             self.predict(model=model, data=train_data, parameters=best_parameters)
@@ -131,7 +135,7 @@ class PretrainedWrapper:
         :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
         during the training time.
         :param dict parameters: a dictionary containing the parameters defined in tools.parameters_pretrained
-        :return: a dictionary containing the accuracy, precision, and recall scores on both training and validation data
+        :return: a dictionary containing the accuracy and roc-auc scores on both training and validation data
         """
         device = parameters["device"]
         n_epochs = parameters["n_epochs"]
@@ -140,14 +144,13 @@ class PretrainedWrapper:
         linear_size = parameters["linear_size"]
         freeze_epochs = parameters["freeze_epochs"]
         unfreeze_epochs = parameters["unfreeze_epochs"]
+        accumulation = parameters["accumulation"]
 
         acc_scores_train = np.zeros(n_epochs)
-        precision_scores_train = np.zeros(n_epochs)
-        recall_scores_train = np.zeros(n_epochs)
+        roc_auc_scores_train = np.zeros(n_epochs)
 
         acc_scores = np.zeros(n_epochs)
-        precision_scores = np.zeros(n_epochs)
-        recall_scores = np.zeros(n_epochs)
+        roc_auc_scores = np.zeros(n_epochs)
 
         loss_func = nn.BCELoss()
         for fold_id in range(len(folds)):
@@ -174,34 +177,34 @@ class PretrainedWrapper:
                 for i, batch in enumerate(train_loader):
                     x_batch, y_batch = batch
                     probas = torch.flatten(model(x=x_batch))  # forward
-                    model.zero_grad()
                     batch_loss = loss_func(probas, y_batch)  # calculate loss
+                    batch_loss /= accumulation
                     batch_loss.backward()  # calculate gradients
-                    optimizer.step()  # update parameters
+
+                    if ((i + 1) % accumulation == 0) or ((i + 1) == len(train_loader)):
+                        optimizer.step()  # update parameters
+                        optimizer.zero_grad()
 
                 print("Metrics on training data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=train, parameters=parameters)
                 acc_scores_train[epoch - 1] += metrics["acc"]
-                precision_scores_train[epoch - 1] += metrics["precision"]
-                recall_scores_train[epoch - 1] += metrics["recall"]
+                roc_auc_scores_train[epoch - 1] += metrics["roc_auc"]
+
                 print("Metrics on validation data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=val, parameters=parameters)
                 acc_scores[epoch - 1] += metrics["acc"]
-                precision_scores[epoch - 1] += metrics["precision"]
-                recall_scores[epoch - 1] += metrics["recall"]
+                roc_auc_scores[epoch - 1] += metrics["roc_auc"]
                 print("\n")
 
         for i in range(n_epochs):
             acc_scores_train[i] /= len(folds)
-            precision_scores_train[i] /= len(folds)
-            recall_scores_train[i] /= len(folds)
+            roc_auc_scores_train[i] /= len(folds)
 
             acc_scores[i] /= len(folds)
-            precision_scores[i] /= len(folds)
-            recall_scores[i] /= len(folds)
-        return {"acc_scores_train": acc_scores_train, "precision_scores_train": precision_scores_train,
-                "recall_scores_train": recall_scores_train, "acc_scores": acc_scores,
-                "precision_scores": precision_scores, "recall_scores": recall_scores}
+            roc_auc_scores[i] /= len(folds)
+
+        return {"acc_scores_train": acc_scores_train, "acc_scores": acc_scores,
+                "roc_auc_scores_train": roc_auc_scores_train, "roc_auc_scores": roc_auc_scores}
 
     def predict(self, model, data, parameters):
         """
@@ -210,13 +213,11 @@ class PretrainedWrapper:
         :param CNNClassifier model: a trained CNNClassifier
         :param pd.DataFrame data: a dataset on which the prediction has to be performed
         :param dict parameters: a dictionary containing the parameters defined in tools.parameters_pretrained
-        :return: a dictionary containing the accuracy, prediction,
-        and recall score of the models predictions on the data
+        :return: a dictionary containing the accuracy and roc-auc score of the models predictions on the data
         """
         model.eval()
         acc = 0
-        precision = 0
-        recall = 0
+        roc_auc = 0
         loader = self.preprocess(data=data, parameters=parameters)["loader"]
         for batch in loader:
             x_batch, y_batch = batch
@@ -224,16 +225,14 @@ class PretrainedWrapper:
                 probas = torch.flatten(model(x=x_batch))
             metrics = tools.evaluate(y_true=y_batch, y_probas=probas)
             acc += metrics["acc"]
-            precision += metrics["precision"]
-            recall += metrics["recall"]
+            roc_auc += metrics["roc_auc"]
+
         acc /= len(loader)
-        precision /= len(loader)
-        recall /= len(loader)
+        roc_auc /= len(loader)
 
         print("Accuracy:", acc)
-        print("Precision:", precision)
-        print("Recall:", recall)
-        return {"acc": acc, "precision": precision, "recall": recall}
+        print("ROCAUC:", roc_auc)
+        return {"acc": acc, "roc_auc": roc_auc}
 
 
 # read the datasets
@@ -247,36 +246,57 @@ for i in range(1, len(train_folds) - 1):
 # define the parameters
 device = tools.select_device()
 print("device:", device)
-transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True), transforms.ToTensor()])
 
+transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
 parameters1 = tools.parameters_pretrained(n_epochs=10,
                                           lr=0.0001,
                                           batch_size=16,
                                           transform_pipe=transform_pipe,
-                                          pretrained_component=models.mobilenet_v3_large(pretrained=True),
-                                          linear_size=16,
+                                          pretrained_component="mobilenet",
+                                          linear_size=2,
                                           freeze_epochs=[],
                                           unfreeze_epochs=[],
+                                          accumulation=2,
                                           device=device)
 
-parameters2 = tools.parameters_pretrained(n_epochs=10,
+'''transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
+parameters1 = tools.parameters_pretrained(n_epochs=10,
+                                          lr=0.0001,
+                                          batch_size=5,
+                                          transform_pipe=transform_pipe,
+                                          pretrained_component="densenet",
+                                          linear_size=2,
+                                          freeze_epochs=[],
+                                          unfreeze_epochs=[],
+                                          accumulation=2,
+                                          device=device)'''
+
+'''
+transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
+parameters1 = tools.parameters_pretrained(n_epochs=10,
                                           lr=0.0001,
                                           batch_size=16,
                                           transform_pipe=transform_pipe,
-                                          pretrained_component=models.mobilenet_v3_large(pretrained=True),
+                                          pretrained_component="resnet",
                                           linear_size=16,
-                                          freeze_epochs=[2, 4],
-                                          unfreeze_epochs=[3, 5],
+                                          freeze_epochs=[],
+                                          unfreeze_epochs=[],
+                                          accumulation=2,
                                           device=device)
+'''
 
-parameter_combinations = [parameters1, parameters2]
+
+parameter_combinations = [parameters1]
 
 # use the model
 pretrained_wrapper = PretrainedWrapper()
+
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=pretrained_wrapper,
                              folds=train_folds,
-                             model_name="Mobilenet_V3_Large")
+                             model_name="Mobilenet")
+
 best_cnn = pretrained_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
 print("\nPERFORMANCE ON TEST")
+
 pretrained_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters1)

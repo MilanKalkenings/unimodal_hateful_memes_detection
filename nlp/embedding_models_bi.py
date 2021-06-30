@@ -420,7 +420,7 @@ class EmbeddingWrapper:
         :param list folds: a list of pd.DataFrames. Each of the DataFrames contains one fold of the data available
         during the training time.
         :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
-        :return: a dictionary containing the accuracy, precision, and recall scores on both training and validation data
+        :return: a dictionary containing the accuracy and roc-auc scores on both training and validation data
         """
         device = parameters["device"]
         n_epochs = parameters["n_epochs"]
@@ -431,12 +431,10 @@ class EmbeddingWrapper:
         n_classes = parameters["n_classes"]
 
         acc_scores_train = np.zeros(n_epochs)
-        precision_scores_train = np.zeros(n_epochs)
-        recall_scores_train = np.zeros(n_epochs)
+        roc_auc_scores_train = np.zeros(n_epochs)
 
         acc_scores = np.zeros(n_epochs)
-        precision_scores = np.zeros(n_epochs)
-        recall_scores = np.zeros(n_epochs)
+        roc_auc_scores = np.zeros(n_epochs)
 
         loss_func = nn.CrossEntropyLoss()
         for fold_id in range(len(folds)):
@@ -468,26 +466,23 @@ class EmbeddingWrapper:
                 print("Metrics on training data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=train, parameters=parameters, vocab=vocab)
                 acc_scores_train[epoch - 1] += metrics["acc"]
-                precision_scores_train[epoch - 1] += metrics["precision"]
-                recall_scores_train[epoch - 1] += metrics["recall"]
+                roc_auc_scores_train[epoch - 1] += metrics["roc_auc"]
+
                 print("Metrics on validation data after epoch", epoch, ":")
                 metrics = self.predict(model=model, data=val, parameters=parameters, vocab=vocab)
                 acc_scores[epoch - 1] += metrics["acc"]
-                precision_scores[epoch - 1] += metrics["precision"]
-                recall_scores[epoch - 1] += metrics["recall"]
+                roc_auc_scores[epoch - 1] += metrics["roc_auc"]
                 print("\n")
 
         for i in range(n_epochs):
             acc_scores_train[i] /= len(folds)
-            precision_scores_train[i] /= len(folds)
-            recall_scores_train[i] /= len(folds)
+            roc_auc_scores_train[i] /= len(folds)
 
             acc_scores[i] /= len(folds)
-            precision_scores[i] /= len(folds)
-            recall_scores[i] /= len(folds)
-        return {"acc_scores_train": acc_scores_train, "precision_scores_train": precision_scores_train,
-                "recall_scores_train": recall_scores_train, "acc_scores": acc_scores,
-                "precision_scores": precision_scores, "recall_scores": recall_scores}
+            roc_auc_scores[i] /= len(folds)
+
+        return {"acc_scores_train": acc_scores_train, "acc_scores": acc_scores,
+                "roc_auc_scores_train": roc_auc_scores_train, "roc_auc_scores": roc_auc_scores}
 
     def predict(self, model, data, parameters, vocab):
         """
@@ -497,13 +492,11 @@ class EmbeddingWrapper:
         :param pd.DataFrame data: a dataset on which the prediction has to be performed
         :param dict parameters: a dictionary containing the parameters defined in tools.parameters_rnn_based
         :param pd.Series vocab: a trained vocab mapping that maps tokens to integers
-        :return: a dictionary containing the accuracy, prediction,
-        and recall score of the models predictions on the data
+        :return: a dictionary containing the accuracy and roc-auc score of the models predictions on the data
         """
         model.eval()
         acc = 0
-        precision = 0
-        recall = 0
+        roc_auc = 0
         loader = self.preprocess(data=data, parameters=parameters, vocab=vocab)["loader"]
         for batch in loader:
             x_batch, y_batch = batch
@@ -512,16 +505,14 @@ class EmbeddingWrapper:
             _, preds = torch.max(probas.data, 1)
             metrics = tools.evaluate(y_true=y_batch, y_probas=preds)
             acc += metrics["acc"]
-            precision += metrics["precision"]
-            recall += metrics["recall"]
+            roc_auc += metrics["roc_auc"]
+
         acc /= len(loader)
-        precision /= len(loader)
-        recall /= len(loader)
+        roc_auc /= len(loader)
 
         print("Accuracy:", acc)
-        print("Precision:", precision)
-        print("Recall:", recall)
-        return {"acc": acc, "precision": precision, "recall": recall}
+        print("ROCAUC:", roc_auc)
+        return {"acc": acc, "roc_auc": roc_auc}
 
 
 # read the datasets
@@ -549,8 +540,19 @@ parameters1 = tools.parameters_rnn_based(n_epochs=5,
                                          y_name="label",
                                          device=device)
 
-parameters2 = tools.parameters_rnn_based(n_epochs=5,
-                                         lr=0.0001,
+parameter_combinations = [parameters1]
+
+# use the model
+e_wrapper = EmbeddingWrapper(model_class=RNNEClassifier)
+tools.performance_comparison(parameter_combinations=parameter_combinations,
+                             wrapper=e_wrapper,
+                             folds=train_folds,
+                             model_name="RNN")
+
+'''
+print("device:", device)
+parameters1 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.001,
                                          max_seq_len=16,
                                          n_layers=3,
                                          feats_per_time_step=128,
@@ -561,14 +563,121 @@ parameters2 = tools.parameters_rnn_based(n_epochs=5,
                                          y_name="label",
                                          device=device)
 
-parameter_combinations = [parameters1, parameters2]
+parameter_combinations = [parameters1]
 
 # use the model
-e_wrapper = EmbeddingWrapper(model_class=BiLSTMEClassifier)
+e_wrapper = EmbeddingWrapper(model_class=BiRNNEClassifier)
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=e_wrapper,
                              folds=train_folds,
-                             model_name="BiLSTM")
+                             model_name="BiRNN")
+'''
+
+
+'''parameters1 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=128,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameter_combinations = [parameters1]
+
+# use the model
+e_wrapper = EmbeddingWrapper(model_class=BiRNNEClassifier)
+tools.performance_comparison(parameter_combinations=parameter_combinations,
+                             wrapper=e_wrapper,
+                             folds=train_folds,
+                             model_name="BiRNN")'''
+
+'''parameters1 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=128,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameter_combinations = [parameters1]
+
+# use the model
+e_wrapper = EmbeddingWrapper(model_class=GRUEClassifier)
+tools.performance_comparison(parameter_combinations=parameter_combinations,
+                             wrapper=e_wrapper,
+                             folds=train_folds,
+                             model_name="GRU")'''
+
+'''parameters1 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=128,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameter_combinations = [parameters1]
+
+# use the model
+e_wrapper = EmbeddingWrapper(model_class=BiGRUEClassifier)
+tools.performance_comparison(parameter_combinations=parameter_combinations,
+                             wrapper=e_wrapper,
+                             folds=train_folds,
+                             model_name="BiGRU")'''
+
+'''parameters1 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=128,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameter_combinations = [parameters1]
+
+# use the model
+e_wrapper = EmbeddingWrapper(model_class=LSTMEClassifier)
+tools.performance_comparison(parameter_combinations=parameter_combinations,
+                             wrapper=e_wrapper,
+                             folds=train_folds,
+                             model_name="LSTM")'''
+
+'''parameters1 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=128,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameter_combinations = [parameters1]
+
+# use the model
+e_wrapper = EmbeddingWrapper(model_class=BiLSTMClassifier)
+tools.performance_comparison(parameter_combinations=parameter_combinations,
+                             wrapper=e_wrapper,
+                             folds=train_folds,
+                             model_name="BiLSTM")'''
 fitted = e_wrapper.fit(train_data=train_data, best_parameters=parameters1)
 vocab = fitted["vocab"]
 best_e_clf = fitted["model"]

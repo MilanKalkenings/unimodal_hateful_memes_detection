@@ -4,8 +4,7 @@ import pandas as pd
 import torch
 from PIL import Image
 from sklearn.metrics import accuracy_score
-from sklearn.metrics import precision_score
-from sklearn.metrics import recall_score
+from sklearn.metrics import roc_auc_score
 from torch.utils.data import Dataset
 
 
@@ -50,18 +49,23 @@ def read_folds(prefix, read_path, num_folds=6, test_fold_id=0):
 def evaluate(y_true, y_probas):
     """
     Evaluates the prediction-probabilities of a model
-    using accuracy, precision, and recall score
+    using accuracy and roc-auc score
 
     :param torch.Tensor y_true: true labels
     :param torch.Tensor y_probas: predicted class probabilities
-    :return: a dictionary containing the accuracy, precision, and recall score
+    :return: a dictionary containing the accuracy and roc-auc score
     """
-    preds_batch_np = np.round(y_probas.cpu().detach().numpy())
+    probas_np = y_probas.cpu().detach().numpy()
+    preds_np = np.round(y_probas.cpu().detach().numpy())
     y_batch_np = y_true.cpu().detach().numpy()
-    acc = accuracy_score(y_true=y_batch_np, y_pred=preds_batch_np)
-    precision = precision_score(y_true=y_batch_np, y_pred=preds_batch_np, zero_division=1)
-    recall = recall_score(y_true=y_batch_np, y_pred=preds_batch_np, zero_division=1)
-    return {"acc": acc, "precision": precision, "recall": recall}
+    acc = accuracy_score(y_true=y_batch_np, y_pred=preds_np)
+    try:
+        roc_auc = roc_auc_score(y_true=y_batch_np, y_score=probas_np)
+    except ValueError:
+        print("y:\n", y_batch_np)
+        print("PROBAS:\n", probas_np)
+        roc_auc = 0
+    return {"acc": acc, "roc_auc": roc_auc}
 
 
 def train_val_split(data_folds, val_fold_id):
@@ -156,7 +160,7 @@ def parameters_cnn(n_epochs, lr, batch_size, transform_pipe, conv_ch1, conv_ch2,
 
 
 def parameters_pretrained(n_epochs, lr, batch_size, transform_pipe, pretrained_component, linear_size, freeze_epochs,
-                          unfreeze_epochs, device):
+                          unfreeze_epochs, accumulation, device):
     """
     Creates a dictionary containing the necessary preprocessing,
     model and training parameters for the PretrainedWrapper.
@@ -166,18 +170,19 @@ def parameters_pretrained(n_epochs, lr, batch_size, transform_pipe, pretrained_c
     :param batch_size: number of observations per batch
     :param transform_pipe: a pipeline consisting of image transformations. Should at least ensure the images to have
     a symetric shape and being stored in torch.Tensors
-    :param pretrained_component:
+    :param str pretrained_component: the name of a pretrained model that is used as one component of the model
     :param int linear_size: size of the second linear layer. Size of the first linear layer is determined automatically
     :param list freeze_epochs: a list of integers representing the epochs in which the pretrained component
     has to be frozen
     :param list unfreeze_epochs: a list of integers representing the epochs in which the pretrained component
     has to be unfrozen
+    :param int accumulation: number of batches accumulated to form a single gradient per parameter
     :param str device: name of the utilized device (either cpu or cuda)
     :return: a dictionary containing all parameters having their names as keys.
     """
     return {"n_epochs": n_epochs, "lr": lr, "batch_size": batch_size, "transform_pipe": transform_pipe,
             "pretrained_component": pretrained_component, "linear_size": linear_size, "freeze_epochs": freeze_epochs,
-            "unfreeze_epochs": unfreeze_epochs, "device": device}
+            "unfreeze_epochs": unfreeze_epochs, "accumulation": accumulation, "device": device}
 
 
 def performance_comparison(parameter_combinations, wrapper, folds, model_name):
@@ -192,25 +197,22 @@ def performance_comparison(parameter_combinations, wrapper, folds, model_name):
     for i, parameters in enumerate(parameter_combinations):
         metrics = wrapper.evaluate_hyperparameters(folds=folds, parameters=parameters)
         acc_scores_train = pd.Series(metrics["acc_scores_train"], name="Train Accuracy")
-        precision_scores_train = pd.Series(metrics["precision_scores_train"], name="Train Precision")
-        recall_scores_train = pd.Series(metrics["recall_scores_train"], name="Train Recall")
+        roc_auc_scores_train = pd.Series(metrics["roc_auc_scores_train"], name="Train ROC-AUC")
 
         acc_scores = pd.Series(metrics["acc_scores"], name="Validation Accuracy")
-        precision_scores = pd.Series(metrics["precision_scores"], name="Validation Precision")
-        recall_scores = pd.Series(metrics["recall_scores"], name="Validation Recall")
+        roc_auc_scores = pd.Series(metrics["roc_auc_scores"], name="Validation ROC-AUC")
+
 
         # plot
-        fig, axs = plt.subplots(3, figsize=(5, 15))
-        fig.suptitle(f"{model_name}\nPerformance with\nParameter Combination " + str(i + 1))
+        fig, axs = plt.subplots(2, figsize=(5, 10))
+        fig.suptitle(f"{model_name}")
         x_labels = range(1, len(acc_scores) + 1)
 
         acc_scores_train.plot(ax=axs[0], c="red", ls=("dashed"))
-        precision_scores_train.plot(ax=axs[1], c="blue", ls=("dashed"))
-        recall_scores_train.plot(ax=axs[2], c="green", ls=("dashed"))
+        roc_auc_scores_train.plot(ax=axs[1], c="blue", ls=("dashed"))
 
         acc_scores.plot(ax=axs[0], c="red")
-        precision_scores.plot(ax=axs[1], c="blue")
-        recall_scores.plot(ax=axs[2], c="green")
+        roc_auc_scores.plot(ax=axs[1], c="blue")
 
         axs[0].set_title("Accuracy Score")
         axs[0].legend()
@@ -221,23 +223,14 @@ def performance_comparison(parameter_combinations, wrapper, folds, model_name):
         axs[0].set_xticklabels(x_labels)
         axs[0].set_xlabel("Epochs")
 
-        axs[1].set_title("Precision Score")
+        axs[1].set_title("ROC-AUC Score")
         axs[1].legend()
-        min = np.min([precision_scores_train.min(), precision_scores.min()])
-        max = np.max([precision_scores_train.max(), precision_scores.max()])
+        min = np.min([roc_auc_scores_train.min(), roc_auc_scores.min()])
+        max = np.max([roc_auc_scores_train.max(), roc_auc_scores.max()])
         axs[1].set_ylim([min, max])
         axs[1].set_xticks(range(len(acc_scores)))
         axs[1].set_xticklabels(x_labels)
         axs[1].set_xlabel("Epochs")
-
-        axs[2].set_title("Recall Score")
-        axs[2].legend()
-        min = np.min([recall_scores_train.min(), recall_scores.min()])
-        max = np.max([recall_scores_train.max(), recall_scores.max()])
-        axs[2].set_ylim([min, max])
-        axs[2].set_xticks(range(len(acc_scores)))
-        axs[2].set_xticklabels(x_labels)
-        axs[2].set_xlabel("Epochs")
 
         plt.tight_layout(pad=3)
         plt.savefig("visuals/" + model_name + "_combi_" + str(i + 1))

@@ -11,8 +11,7 @@ from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from sklearn.ensemble import AdaBoostClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
-from sklearn.metrics import precision_score
-from sklearn.metrics import recall_score
+from sklearn.metrics import roc_auc_score
 from sklearn.tree import DecisionTreeClassifier
 from textblob import TextBlob
 
@@ -454,7 +453,7 @@ class FeatureEngineer:
                 return False
 
             print("Performing Preselection...")
-            feature_selector = SelectFromModel(estimator=lr)
+            feature_selector = SelectFromModel(estimator=clf)
 
             # for more robustness: average over 10 non-disjoint random data subsets:
             all_ids = X_train.index
@@ -475,10 +474,11 @@ class FeatureEngineer:
             print("Metrics using these Features:")
             clf.fit(X=X_train, y=y_train)
             preds = clf.predict(X=X_test)
+            probas = clf.predict_proba(X=X_test)[:, 1]
             accuracy = accuracy_score(y_true=y_test, y_pred=preds)
+            roc_auc = roc_auc_score(y_true=y_test, y_score=probas)
             print("Accuracy on test:", accuracy)
-            print("Precision on test:", precision_score(y_true=y_test, y_pred=preds))
-            print("Recall on test:", recall_score(y_true=y_test, y_pred=preds))
+            print("ROCAUC on test:", roc_auc)
 
             if post_f_i:
                 print("\nPerforming Permutation Importance:")
@@ -491,7 +491,7 @@ class FeatureEngineer:
                 fig, ax = plt.subplots(figsize=(5, 5))
                 lr_top_20_features = sorted_importances.head(20)
                 lr_top_20_features.plot(kind="bar", ax=ax)
-                ax.set_title(f"Importances of the\nbest Manual Features for\n{model_name},\nTest Accuracy: {accuracy}")
+                ax.set_title(f"Importances of the\nbest manual features for\n{model_name},\nTest Accuracy: {accuracy},\nTest ROCAUC: {roc_auc}")
                 plt.tight_layout(pad=3)
                 plt.savefig(f"visuals/best_manual_{model_name}")
 
@@ -499,10 +499,11 @@ class FeatureEngineer:
         else:
             clf.fit(X=X_train, y=y_train)
             preds = clf.predict(X=X_test)
+            probas = clf.predict_proba(X=X_test)[:, 1]
             accuracy = accuracy_score(y_true=y_test, y_pred=preds)
+            roc_auc = roc_auc_score(y_true=y_test, y_score=probas)
             print("Accuracy on test:", accuracy)
-            print("Precision on test:", precision_score(y_true=y_test, y_pred=preds))
-            print("Recall on test:", recall_score(y_true=y_test, y_pred=preds))
+            print("ROCAUC on test:", roc_auc)
             if post_f_i:
                 print("\nPerforming Permutation Importance:")
                 importances = permutation_importance(estimator=clf, X=X_test, y=y_test).importances_mean
@@ -511,10 +512,11 @@ class FeatureEngineer:
                 print("Sorted Feature Importances:\n", sorted_importances, "\n")
 
                 # plot
-                fig, ax = plt.subplots(figsize=(5, 15))
+                fig, ax = plt.subplots(figsize=(5, 5))
                 lr_top_20_features = sorted_importances.head(20)
                 lr_top_20_features.plot(kind="bar", ax=ax)
-                ax.set_title(f"Importances of the\nbest Manual Features for\n{model_name},\nTest Accuracy: {accuracy}")
+                ax.set_title(f"Importances of the\nbest manual features for\n{model_name},\nTest Accuracy: {accuracy},\nTest ROCAUC: {roc_auc}")
+                plt.tight_layout(pad=3)
                 plt.savefig(f"visuals/best_manual_{model_name}")
 
                 return {"importances": sorted_importances}
@@ -543,9 +545,11 @@ print("Dataset created")
 # read the data, since it's already created
 train_data = pd.read_csv("../../data/manual_features/train.csv")
 test_data = pd.read_csv("../../data/manual_features/test.csv")
-X_train = train_data.drop("label", axis=1)
+X_train = train_data.drop("label", axis=1).iloc[:, 1:]  # drop id
+clean_cols = [col for col in X_train.columns if len(col) > 2]
+X_train = X_train.loc[:, clean_cols]
 y_train = train_data["label"]
-X_test = test_data.drop("label", axis=1)
+X_test = test_data.loc[:, clean_cols]
 y_test = test_data["label"]
 all_features = pd.Series(data=np.zeros(shape=len(X_train.columns)), index=X_train.columns, name="feature_importances")
 
@@ -558,7 +562,7 @@ engineer.perform_classification(clf=lr,
                                 X_test=X_test,
                                 y_test=y_test,
                                 post_f_i=True,
-                                pre_f_i=True)
+                                pre_f_i=False)
 
 dt = DecisionTreeClassifier(random_state=0)
 engineer.perform_classification(clf=dt,
@@ -568,8 +572,8 @@ engineer.perform_classification(clf=dt,
                                 X_test=X_test,
                                 y_test=y_test,
                                 post_f_i=True,
-                                pre_f_i=True)
-
+                                pre_f_i=False)
+                                
 ada = AdaBoostClassifier(random_state=0)
 engineer.perform_classification(clf=ada,
                                 model_name="AdaBoostClassifier",
@@ -578,7 +582,8 @@ engineer.perform_classification(clf=ada,
                                 X_test=X_test,
                                 y_test=y_test,
                                 post_f_i=True,
-                                pre_f_i=True)
+                                pre_f_i=False)
+
 
 rf = RandomForestClassifier(random_state=0)
 engineer.perform_classification(clf=rf,
@@ -588,7 +593,7 @@ engineer.perform_classification(clf=rf,
                                 X_test=X_test,
                                 y_test=y_test,
                                 post_f_i=True,
-                                pre_f_i=True)
+                                pre_f_i=False)
 
 xgb = xgboost.XGBClassifier(random_state=0)
 engineer.perform_classification(clf=xgb,
@@ -598,29 +603,9 @@ engineer.perform_classification(clf=xgb,
                                 X_test=X_test,
                                 y_test=y_test,
                                 post_f_i=True,
-                                pre_f_i=True)
+                                pre_f_i=False)
 
-svc = SVC(random_state=0)
-engineer.perform_classification(clf=svc,
-                                model_name="SVC",
-                                X_train=X_train,
-                                y_train=y_train,
-                                X_test=X_test,
-                                y_test=y_test,
-                                post_f_i=True,
-                                pre_f_i=True)
-
-nb = GaussianNB()
-engineer.perform_classification(clf=nb,
-                                model_name="GaussianNB",
-                                X_train=X_train,
-                                y_train=y_train,
-                                X_test=X_test,
-                                y_test=y_test,
-                                post_f_i=True,
-                                pre_f_i=True)
-
-weak_learners = [nb, svc, lr, ada]
+weak_learners = [rf, lr, ada, dt, xgb]
 stacking = StackingClassifier(estimators=weak_learners)
 engineer.perform_classification(clf=rf,
                                 model_name="StackingClassifier",
@@ -629,4 +614,4 @@ engineer.perform_classification(clf=rf,
                                 X_test=X_test,
                                 y_test=y_test,
                                 post_f_i=True,
-                                pre_f_i=True)
+                                pre_f_i=False)
