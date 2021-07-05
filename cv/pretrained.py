@@ -31,6 +31,8 @@ class PretrainedClassifier(nn.Module):
             self.pretrained_component = models.resnet18(pretrained=True)
         if pretrained_component == "densenet":
             self.pretrained_component = models.densenet121(pretrained=True)
+        if pretrained_component == "vgg":
+            self.pretrained_component = models.vgg11(pretrained=True)
 
         self.linear1 = nn.Linear(in_features=1_000, out_features=linear_size)
         self.linear2 = nn.Linear(in_features=linear_size, out_features=1)  # binary classification -> 1 out feature
@@ -250,6 +252,18 @@ print("device:", device)
 transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
 parameters1 = tools.parameters_pretrained(n_epochs=10,
                                           lr=0.0001,
+                                          batch_size=5,
+                                          transform_pipe=transform_pipe,
+                                          pretrained_component="vgg",
+                                          linear_size=2,
+                                          freeze_epochs=[],
+                                          unfreeze_epochs=[],
+                                          accumulation=2,
+                                          device=device)
+
+'''transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
+parameters1 = tools.parameters_pretrained(n_epochs=10,
+                                          lr=0.0001,
                                           batch_size=16,
                                           transform_pipe=transform_pipe,
                                           pretrained_component="mobilenet",
@@ -257,7 +271,7 @@ parameters1 = tools.parameters_pretrained(n_epochs=10,
                                           freeze_epochs=[],
                                           unfreeze_epochs=[],
                                           accumulation=2,
-                                          device=device)
+                                          device=device)'''
 
 '''transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
 parameters1 = tools.parameters_pretrained(n_epochs=10,
@@ -294,7 +308,7 @@ pretrained_wrapper = PretrainedWrapper()
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=pretrained_wrapper,
                              folds=train_folds,
-                             model_name="Mobilenet")
+                             model_name="VGG")
 
 best_cnn = pretrained_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
 print("\nPERFORMANCE ON TEST")

@@ -65,47 +65,9 @@ class LSTMGloveClassifier(nn.Module):
         return out
 
 
-class BiLSTMGloveClassifier(nn.Module):
-    """
-    A bidirectional LSTM using pretrained word embeddings (glove)
-    """
-
-    def __init__(self, feats_per_time_step, hidden_size, n_layers, n_classes):
-        """
-        Constructor.
-
-        :param int feats_per_time_step: each time step, i.e. each word is represented by a number of features.
-        In case of word embeddings, the number of features per word is the embedding size of the word-vector.
-        :param int hidden_size: size of the hidden state
-        :param int n_layers: number of lstm layers
-        :param int n_classes: determines how many classes have to be handled. 2 in binary case.
-        """
-        super(BiLSTMGloveClassifier, self).__init__()
-        self.n_layers = n_layers
-        self.hidden_size = hidden_size
-        self.lstm = nn.LSTM(feats_per_time_step, hidden_size, n_layers, batch_first=True)
-        self.linear = nn.Linear(hidden_size*2, n_classes)
-
-    def forward(self, x):
-        """
-        performs the forward pass.
-
-        :param torch.Tensor x: the input/observation per batch
-        :return: the prediction of the whole batch
-        """
-        h0 = torch.zeros(self.n_layers*2, x.size(0), self.hidden_size).to(device)  # initial hidden state
-        c0 = torch.zeros(self.n_layers*2, x.size(0), self.hidden_size).to(device)  # initial cell state
-        out, _ = self.lstm(x, (h0, c0))
-        out_direction1 = out[:, -1, :self.hidden_size]  # regular
-        out_direction2 = out[:, 0, self.hidden_size:]  # reverse
-        out = torch.cat((out_direction1, out_direction2), 1)
-        out = self.linear(out)
-        return out
-
-
 class GloveWrapper:
 
-    def __init__(self, glove_map, glove_size):
+    def __init__(self, glove_map, glove_size, model_class):
         """
         Constructor.
 
@@ -113,9 +75,11 @@ class GloveWrapper:
         Maps words to their (glove) embeddings.
         :param int glove_size: glove embeddings come in different sizes (50, 100, 200, 300), issue the used size
         in this parameter.
+        :param nn.Module model_class: one of the text-classifiers in this python module.
         """
         self.glove_map = glove_map
         self.glove_size = glove_size
+        self.model_class = model_class
 
     def preprocess(self, data, parameters):
         """
@@ -193,10 +157,10 @@ class GloveWrapper:
 
         train_loader = preprocessed["loader"]
 
-        model = LSTMGloveClassifier(feats_per_time_step=feats_per_time_step,
-                                    hidden_size=hidden_size,
-                                    n_layers=n_layers,
-                                    n_classes=n_classes).to(device)
+        model = self.model_class(feats_per_time_step=feats_per_time_step,
+                                 hidden_size=hidden_size,
+                                 n_layers=n_layers,
+                                 n_classes=n_classes).to(device)
         optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)
         loss_func = nn.CrossEntropyLoss()
 
@@ -275,10 +239,10 @@ class GloveWrapper:
             train = sets["train"]
             val = sets["val"]
             train_loader = self.preprocess(data=train, parameters=parameters)["loader"]
-            model = LSTMGloveClassifier(feats_per_time_step=feats_per_time_step,
-                                        hidden_size=hidden_size,
-                                        n_layers=n_layers,
-                                        n_classes=n_classes).to(device)  # isolated model per fold
+            model = self.model_class(feats_per_time_step=feats_per_time_step,
+                                     hidden_size=hidden_size,
+                                     n_layers=n_layers,
+                                     n_classes=n_classes).to(device)  # isolated model per fold
             optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)
 
             for epoch in range(1, n_epochs + 1):
@@ -328,18 +292,18 @@ glove_size = 50
 device = tools.select_device()
 print("device:", device)
 parameters1 = tools.parameters_rnn_based(n_epochs=10,
-                                         lr=0.001,
+                                         lr=0.002,
                                          max_seq_len=16,
                                          n_layers=3,
                                          feats_per_time_step=glove_size,
-                                         hidden_size=16,
+                                         hidden_size=128,
                                          n_classes=2,
                                          batch_size=64,
                                          x_name="text",
                                          y_name="label",
                                          device=device)
 
-parameters2 = tools.parameters_rnn_based(n_epochs=10,
+'''parameters2 = tools.parameters_rnn_based(n_epochs=10,
                                          lr=0.0001,
                                          max_seq_len=16,
                                          n_layers=3,
@@ -385,12 +349,12 @@ parameters5 = tools.parameters_rnn_based(n_epochs=10,
                                          batch_size=32,
                                          x_name="text",
                                          y_name="label",
-                                         device=device)
+                                         device=device)'''
 
-parameter_combinations = [parameters1, parameters2, parameters3, parameters4, parameters5]
+parameter_combinations = [parameters1]
 
 # use the model
-lstmg_wrapper = GloveWrapper(glove_map=glove_map, glove_size=glove_size)
+lstmg_wrapper = GloveWrapper(glove_map=glove_map, glove_size=glove_size, model_class=LSTMGloveClassifier)
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=lstmg_wrapper,
                              folds=train_folds,

@@ -17,7 +17,6 @@ class ImageFoldCreator:
         """
         Constructor.
         Mixes both, the original training- and validation data to obtain one large dataset to create folds from.
-
         :param str train_path: path of the original train data
         :param str val_path: path of the original validation data
         :param str destination_path: path of the destination folder
@@ -34,7 +33,6 @@ class ImageFoldCreator:
     def get_fold_ids(num_indices, num_folds, shuffle=True):
         """
         Creates <num_folds> many equal sized (as good as possible) sets of drawn indices.
-
         :param int num_indices: total number of indices to distribute.
         :param int num_folds: each set of indices is later on used to create one fold. The number of folds
         determines the number of sets on which the indices have to be distributed
@@ -57,7 +55,6 @@ class ImageFoldCreator:
     def create_regular(self, prefix="img", num_folds=6):
         """
         Creates folds without undersampling.
-
         :param str prefix: a concatenation of the prefix and the fold number is used as the name of the .csv file
         in which the respective folds will be stored
         :param int num_folds: number of created folds.
@@ -70,7 +67,6 @@ class ImageFoldCreator:
     def create_undersampled(self, prefix="undersampled_img", num_folds=6):
         """
         Creates an undersampled dataset having the same amount of members per category in the target variable.
-
         :param str prefix: a concatenation of the prefix and the fold number is used as the name of the .csv file
         in which the respective folds will be stored
         :param int num_folds: number of created folds.

@@ -553,7 +553,7 @@ X_test = test_data.loc[:, clean_cols]
 y_test = test_data["label"]
 all_features = pd.Series(data=np.zeros(shape=len(X_train.columns)), index=X_train.columns, name="feature_importances")
 
-# check the performance
+'''# check the performance
 lr = LogisticRegression(random_state=0, max_iter=1_000)
 engineer.perform_classification(clf=lr,
                                 model_name="LogisticRegression",
@@ -614,4 +614,4 @@ engineer.perform_classification(clf=rf,
                                 X_test=X_test,
                                 y_test=y_test,
                                 post_f_i=True,
-                                pre_f_i=False)
+                                pre_f_i=False)'''
