@@ -400,7 +400,7 @@ parameters1 = tools.parameters_cnn(n_epochs=10,
 
 transform_pipe = transforms.Compose([transforms.RandomCrop(size=[512, 512], pad_if_needed=True),
                                      transforms.ToTensor()])
-parameters1 = tools.parameters_cnn(n_epochs=30,
+parameters1 = tools.parameters_cnn(n_epochs=8,
                                    lr=0.0001,
                                    batch_size=128,
                                    transform_pipe=transform_pipe,
@@ -418,10 +418,10 @@ parameter_combinations = [parameters1]
 cnn_wrapper = CNNWrapper()
 #cnn_wrapper.demo_one_batch(train_data=train_data, best_parameters=parameters1)
 # cnn_wrapper.find_max_img_sizes(data=train_data, parameters=parameters1)
-tools.performance_comparison(parameter_combinations=parameter_combinations,
+'''tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=cnn_wrapper,
                              folds=train_folds,
-                             model_name="CNN full")
-#best_cnn = cnn_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
-#print("\nPERFORMANCE ON TEST")
-#cnn_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters1)
+                             model_name="CNN full")'''
+best_cnn = cnn_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
+print("\nPERFORMANCE ON TEST")
+cnn_wrapper.predict(model=best_cnn, data=test_fold, parameters=parameters1)

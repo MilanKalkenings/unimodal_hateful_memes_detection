@@ -25,8 +25,6 @@ class PretrainedClassifier(nn.Module):
         PyTorch provide an output tensor of size 1_000.
         """
         super(PretrainedClassifier, self).__init__()
-        if pretrained_component == "mobilenet":
-            self.pretrained_component = models.mobilenet_v3_small(pretrained=True)
         if pretrained_component == "resnet":
             self.pretrained_component = models.resnet18(pretrained=True)
         if pretrained_component == "densenet":
@@ -114,7 +112,7 @@ class PretrainedWrapper:
                 model.unfreeze_pretrained()
 
             model.train()
-            for batch in train_loader:
+            for i, batch in enumerate(train_loader):
                 x_batch, y_batch = batch
                 # model(x) = model.__call__(x) performs forward (+ more)
                 probas = torch.flatten(model(x=x_batch))
@@ -248,32 +246,41 @@ for i in range(1, len(train_folds) - 1):
 # define the parameters
 device = tools.select_device()
 print("device:", device)
-
 transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
-parameters1 = tools.parameters_pretrained(n_epochs=10,
+transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
+parameters1 = tools.parameters_pretrained(n_epochs=2,
                                           lr=0.0001,
-                                          batch_size=5,
+                                          batch_size=16,
                                           transform_pipe=transform_pipe,
-                                          pretrained_component="vgg",
-                                          linear_size=2,
+                                          pretrained_component="resnet",
+                                          linear_size=16,
                                           freeze_epochs=[],
                                           unfreeze_epochs=[],
                                           accumulation=2,
                                           device=device)
 
-'''transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
+
+
+
+
+'''
+transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
 parameters1 = tools.parameters_pretrained(n_epochs=10,
                                           lr=0.0001,
-                                          batch_size=16,
+                                          batch_size=6,
                                           transform_pipe=transform_pipe,
-                                          pretrained_component="mobilenet",
-                                          linear_size=2,
+                                          pretrained_component="vgg",
+                                          linear_size=1,
                                           freeze_epochs=[],
                                           unfreeze_epochs=[],
-                                          accumulation=2,
-                                          device=device)'''
+                                          accumulation=8,
+                                          device=device)
+'''
 
-'''transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
+
+'''
+#DENSENET
+transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
 parameters1 = tools.parameters_pretrained(n_epochs=10,
                                           lr=0.0001,
                                           batch_size=5,
@@ -283,9 +290,11 @@ parameters1 = tools.parameters_pretrained(n_epochs=10,
                                           freeze_epochs=[],
                                           unfreeze_epochs=[],
                                           accumulation=2,
-                                          device=device)'''
+                                          device=device)
+'''
 
 '''
+#RESNET
 transform_pipe = transforms.Compose([transforms.Resize(size=[512, 512]), transforms.ToTensor()])
 parameters1 = tools.parameters_pretrained(n_epochs=10,
                                           lr=0.0001,
@@ -305,10 +314,10 @@ parameter_combinations = [parameters1]
 # use the model
 pretrained_wrapper = PretrainedWrapper()
 
-tools.performance_comparison(parameter_combinations=parameter_combinations,
+'''tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=pretrained_wrapper,
                              folds=train_folds,
-                             model_name="VGG")
+                             model_name="VGG")'''
 
 best_cnn = pretrained_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
 print("\nPERFORMANCE ON TEST")

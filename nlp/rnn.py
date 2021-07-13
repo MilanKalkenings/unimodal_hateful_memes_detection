@@ -282,8 +282,8 @@ class RNNWrapper:
 
             optimizer = AdamW(model.parameters(), lr=lr, eps=1e-8)  # depends on model
 
-            for epoch in range(n_epochs):
-                print("=== Epoch", epoch + 1, "/", n_epochs, "===")
+            for epoch in range(1, n_epochs + 1):
+                print("=== Epoch", epoch, "/", n_epochs, "===")
                 model.train()
                 for batch in train_loader:
                     x_batch, y_batch = batch
@@ -295,12 +295,12 @@ class RNNWrapper:
                     optimizer.step()  # update parameters
 
                 print("Metrics on training data after epoch", epoch, ":")
-                metrics = self.predict(model=model, data=train, parameters=parameters, vocab=vocab)
+                metrics = self.predict(model=model, data=train, parameters=parameters, vocab=vocab, synth_loader=None)
                 acc_scores_train[epoch - 1] += metrics["acc"]
                 roc_auc_scores_train[epoch - 1] += metrics["roc_auc"]
 
                 print("Metrics on validation data after epoch", epoch, ":")
-                metrics = self.predict(model=model, data=val, parameters=parameters, vocab=vocab)
+                metrics = self.predict(model=model, data=val, parameters=parameters, vocab=vocab, synth_loader=None)
                 acc_scores[epoch - 1] += metrics["acc"]
                 roc_auc_scores[epoch - 1] += metrics["roc_auc"]
                 print("\n")
@@ -382,26 +382,14 @@ parameters1 = tools.parameters_rnn_based(n_epochs=5,
                                          y_name="label",
                                          device=device)
 
-parameters2 = tools.parameters_rnn_based(n_epochs=5,
-                                         lr=0.0001,
-                                         max_seq_len=16,
-                                         n_layers=3,
-                                         feats_per_time_step=1,  # tokens only
-                                         hidden_size=16,
-                                         n_classes=2,
-                                         batch_size=32,
-                                         x_name="text",
-                                         y_name="label",
-                                         device=device)
-
 parameter_combinations = [parameters1]
 
 # use the model
 rnn_wrapper = RNNWrapper()
-tools.performance_comparison(parameter_combinations=parameter_combinations,
+'''tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=rnn_wrapper,
                              folds=train_folds,
-                             model_name="RNNToken")
+                             model_name="RNNToken")'''
 fitted = rnn_wrapper.fit(train_data=train_data, best_parameters=parameters1)
 vocab = fitted["vocab"]
 best_rnn_clf = fitted["model"]

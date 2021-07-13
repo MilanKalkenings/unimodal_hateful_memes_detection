@@ -291,7 +291,7 @@ for i in range(1, len(train_folds) - 1):
 glove_size = 50
 device = tools.select_device()
 print("device:", device)
-parameters1 = tools.parameters_rnn_based(n_epochs=10,
+parameters1 = tools.parameters_rnn_based(n_epochs=6,
                                          lr=0.002,
                                          max_seq_len=16,
                                          n_layers=3,
@@ -355,10 +355,10 @@ parameter_combinations = [parameters1]
 
 # use the model
 lstmg_wrapper = GloveWrapper(glove_map=glove_map, glove_size=glove_size, model_class=LSTMGloveClassifier)
-tools.performance_comparison(parameter_combinations=parameter_combinations,
+'''tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=lstmg_wrapper,
                              folds=train_folds,
-                             model_name="GloVe LSTM")
+                             model_name="GloVe LSTM")'''
 fitted = lstmg_wrapper.fit(train_data=train_data, best_parameters=parameters1)
 best_lstmg_clf = fitted["model"]
 print("\nPERFORMANCE ON TEST:")

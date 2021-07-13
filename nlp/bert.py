@@ -237,10 +237,10 @@ parameter_combinations = [parameters1]
 
 # use the model
 bert_wrapper = BertWrapper()
-tools.performance_comparison(parameter_combinations=parameter_combinations,
+'''tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=bert_wrapper,
                              folds=train_folds,
-                             model_name="BERT")
+                             model_name="BERT")'''
 best_bert_clf = bert_wrapper.fit(train_data=train_data, best_parameters=parameters1)["model"]
 print("\nPERFORMANCE ON TEST:")
 bert_wrapper.predict(model=best_bert_clf, data=test_fold, parameters=parameters1)

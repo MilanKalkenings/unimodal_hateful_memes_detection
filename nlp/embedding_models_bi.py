@@ -527,6 +527,37 @@ for i in range(1, len(train_folds) - 1):
 
 # define the parameters
 device = tools.select_device()
+
+# insert here
+parameters1 = tools.parameters_rnn_based(n_epochs=5,
+                                         lr=0.001,
+                                         max_seq_len=16,
+                                         n_layers=3,
+                                         feats_per_time_step=128,
+                                         hidden_size=16,
+                                         n_classes=2,
+                                         batch_size=32,
+                                         x_name="text",
+                                         y_name="label",
+                                         device=device)
+
+parameter_combinations = [parameters1]
+
+# use the model
+e_wrapper = EmbeddingWrapper(model_class=RNNEClassifier)
+# endinsert
+
+fitted = e_wrapper.fit(train_data=train_data, best_parameters=parameters1)
+vocab = fitted["vocab"]
+best_e_clf = fitted["model"]
+print("\nPERFORMANCE ON TEST:")
+e_wrapper.predict(model=best_e_clf, data=test_fold, parameters=parameters1, vocab=vocab)
+
+
+
+'''
+#RNNE
+device = tools.select_device()
 print("device:", device)
 parameters1 = tools.parameters_rnn_based(n_epochs=5,
                                          lr=0.001,
@@ -547,9 +578,12 @@ e_wrapper = EmbeddingWrapper(model_class=RNNEClassifier)
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=e_wrapper,
                              folds=train_folds,
-                             model_name="RNN")
+                             model_name="RNN")'''
+
+
 
 '''
+#BiRNNE
 print("device:", device)
 parameters1 = tools.parameters_rnn_based(n_epochs=5,
                                          lr=0.001,
@@ -574,28 +608,10 @@ tools.performance_comparison(parameter_combinations=parameter_combinations,
 '''
 
 
-'''parameters1 = tools.parameters_rnn_based(n_epochs=5,
-                                         lr=0.001,
-                                         max_seq_len=16,
-                                         n_layers=3,
-                                         feats_per_time_step=128,
-                                         hidden_size=16,
-                                         n_classes=2,
-                                         batch_size=32,
-                                         x_name="text",
-                                         y_name="label",
-                                         device=device)
 
-parameter_combinations = [parameters1]
-
-# use the model
-e_wrapper = EmbeddingWrapper(model_class=BiRNNEClassifier)
-tools.performance_comparison(parameter_combinations=parameter_combinations,
-                             wrapper=e_wrapper,
-                             folds=train_folds,
-                             model_name="BiRNN")'''
-
-'''parameters1 = tools.parameters_rnn_based(n_epochs=5,
+'''
+# GRUE
+parameters1 = tools.parameters_rnn_based(n_epochs=5,
                                          lr=0.001,
                                          max_seq_len=16,
                                          n_layers=3,
@@ -616,7 +632,11 @@ tools.performance_comparison(parameter_combinations=parameter_combinations,
                              folds=train_folds,
                              model_name="GRU")'''
 
-'''parameters1 = tools.parameters_rnn_based(n_epochs=5,
+
+
+'''
+# BIGRUE
+parameters1 = tools.parameters_rnn_based(n_epochs=5,
                                          lr=0.001,
                                          max_seq_len=16,
                                          n_layers=3,
@@ -637,7 +657,11 @@ tools.performance_comparison(parameter_combinations=parameter_combinations,
                              folds=train_folds,
                              model_name="BiGRU")'''
 
-'''parameters1 = tools.parameters_rnn_based(n_epochs=5,
+
+
+'''
+# LSTME
+parameters1 = tools.parameters_rnn_based(n_epochs=5,
                                          lr=0.001,
                                          max_seq_len=16,
                                          n_layers=3,
@@ -658,7 +682,9 @@ tools.performance_comparison(parameter_combinations=parameter_combinations,
                              folds=train_folds,
                              model_name="LSTM")'''
 
-'''parameters1 = tools.parameters_rnn_based(n_epochs=5,
+'''
+# BISLTME
+parameters1 = tools.parameters_rnn_based(n_epochs=5,
                                          lr=0.001,
                                          max_seq_len=16,
                                          n_layers=3,
@@ -673,13 +699,9 @@ tools.performance_comparison(parameter_combinations=parameter_combinations,
 parameter_combinations = [parameters1]
 
 # use the model
-e_wrapper = EmbeddingWrapper(model_class=BiLSTMClassifier)
+e_wrapper = EmbeddingWrapper(model_class=BiLSTMEClassifier)
 tools.performance_comparison(parameter_combinations=parameter_combinations,
                              wrapper=e_wrapper,
                              folds=train_folds,
                              model_name="BiLSTM")'''
-fitted = e_wrapper.fit(train_data=train_data, best_parameters=parameters1)
-vocab = fitted["vocab"]
-best_e_clf = fitted["model"]
-print("\nPERFORMANCE ON TEST:")
-e_wrapper.predict(model=best_e_clf, data=test_fold, parameters=parameters1, vocab=vocab)
+

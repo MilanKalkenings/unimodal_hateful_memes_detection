@@ -60,9 +60,7 @@ def evaluate(y_true, y_probas):
     try:
         roc_auc = roc_auc_score(y_true=y_batch_np, y_score=probas_np)
     except ValueError:
-        print("y:\n", y_batch_np)
-        print("PROBAS:\n", probas_np)
-        roc_auc = 0
+        roc_auc = 0.5
     return {"acc": acc, "roc_auc": roc_auc}
 
 
